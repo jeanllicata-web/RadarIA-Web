@@ -153,23 +153,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def obtener_datos_modulo(ticker, timeout=5):
+def obtener_datos_completos(ticker, timeout=5):
     try:
         stock = yf.Ticker(ticker)
+        hist = stock.history(period="5d", timeout=timeout)
+        q_fin = stock.quarterly_financials
+        q_bal = stock.quarterly_balance_sheet
+        q_cash = stock.quarterly_cashflow
         info = stock.info
-        return {"status": "ok", "info": info}
+        return {"status": "ok", "hist": hist, "q_fin": q_fin, "q_bal": q_bal, "q_cash": q_cash, "info": info}
     except Exception as e:
         return {"status": "error"}
 
 def modulo_1_pe_ratio():
-    resultado = obtener_datos_modulo("NVDA")
+    resultado = obtener_datos_completos("NVDA")
     if resultado["status"] == "ok":
         info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
+        hist = resultado["hist"]
         pe_ratio = info.get("trailingPE")
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        pe_limpio = str(pe_ratio) if pe_ratio is not None else "No disponible"
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        pe_limpio = str(round(pe_ratio, 2)) if pe_ratio is not None else "No disponible"
         
         if pe_ratio is not None and pe_ratio > 100:
             en_alerta = True
@@ -178,47 +186,58 @@ def modulo_1_pe_ratio():
         else:
             en_alerta = False
             
-        return {
-            "id": "M01", "nombre": "Múltiplos de Valoración (P/E Ratio)", "ticker": "NVDA",
-            "explicacion": "Mide cuánto pagan los inversores por cada dólar de ganancia. Un valor muy alto sugiere que la acción está cara.",
-            "precio_cierre": precio_limpio, "metrica_valor": pe_limpio, "en_alerta": en_alerta
-        }
+        return {"id": "M01", "nombre": "Múltiplos de Valoración (P/E Ratio)", "ticker": "NVDA", "explicacion": "Mide cuánto pagan los inversores por cada dólar de ganancia. Un valor muy alto sugiere que la acción está cara.", "precio_cierre": precio_limpio, "metrica_valor": pe_limpio, "en_alerta": en_alerta}
     return {"id": "M01", "nombre": "Múltiplos de Valoración (P/E Ratio)", "ticker": "NVDA", "explicacion": "Mide cuánto pagan los inversores por cada dólar de ganancia. Un valor muy alto sugiere que la acción está cara.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_2_crecimiento_ingresos():
-    resultado = obtener_datos_modulo("MSFT")
+    resultado = obtener_datos_completos("MSFT")
     if resultado["status"] == "ok":
-        info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        crecimiento = info.get("revenueGrowth")
+        hist = resultado["hist"]
+        q_fin = resultado["q_fin"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        crecimiento_limpio = str(crecimiento * 100) + "%" if crecimiento is not None else "No disponible"
-        
-        if crecimiento is not None and crecimiento < 0:
-            en_alerta = True
-        elif crecimiento is None:
-            en_alerta = True
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
         else:
-            en_alerta = False
+            precio_limpio = "No disponible"
+            
+        if q_fin is not None and not q_fin.empty and "Total Revenue" in q_fin.index:
+            revenue = q_fin.loc["Total Revenue"]
+            if len(revenue) >= 2 and revenue.iloc[1] != 0:
+                crecimiento = (revenue.iloc[0] - revenue.iloc[1]) / revenue.iloc[1]
+                crecimiento_limpio = f"{round(crecimiento * 100, 2)}%"
+                en_alerta = crecimiento < 0
+            else:
+                crecimiento_limpio = "No disponible"
+                en_alerta = True
+        else:
+            crecimiento_limpio = "No disponible"
+            en_alerta = True
             
         return {"id": "M02", "nombre": "Crecimiento de Ingresos vs Expectativas", "ticker": "MSFT", "explicacion": "Evalúa si los ingresos crecen al ritmo esperado. Una caída indica desaceleración del negocio.", "precio_cierre": precio_limpio, "metrica_valor": crecimiento_limpio, "en_alerta": en_alerta}
     return {"id": "M02", "nombre": "Crecimiento de Ingresos vs Expectativas", "ticker": "MSFT", "explicacion": "Evalúa si los ingresos crecen al ritmo esperado. Una caída indica desaceleración del negocio.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_3_capex_bigtech():
-    resultado = obtener_datos_modulo("GOOGL")
+    resultado = obtener_datos_completos("GOOGL")
     if resultado["status"] == "ok":
-        info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        capex = info.get("capitalExpenditures")
-        ingresos = info.get("totalRevenue")
+        hist = resultado["hist"]
+        q_cash = resultado["q_cash"]
+        q_fin = resultado["q_fin"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        
-        if capex is not None and ingresos is not None and ingresos != 0:
-            ratio = abs(capex) / ingresos
-            ratio_limpio = str(ratio * 100) + "%"
-            en_alerta = ratio > 0.2
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        if q_cash is not None and not q_cash.empty and "Capital Expenditure" in q_cash.index and q_fin is not None and "Total Revenue" in q_fin.index:
+            capex = q_cash.loc["Capital Expenditure"]
+            revenue = q_fin.loc["Total Revenue"]
+            if len(capex) > 0 and len(revenue) > 0 and revenue.iloc[0] != 0:
+                ratio = abs(capex.iloc[0]) / revenue.iloc[0]
+                ratio_limpio = f"{round(ratio * 100, 2)}%"
+                en_alerta = ratio > 0.2
+            else:
+                ratio_limpio = "No disponible"
+                en_alerta = True
         else:
             ratio_limpio = "No disponible"
             en_alerta = True
@@ -227,14 +246,18 @@ def modulo_3_capex_bigtech():
     return {"id": "M03", "nombre": "Inversión en CapEx de Big Tech", "ticker": "GOOGL", "explicacion": "Analiza la inversión en infraestructura respecto a sus ingresos. Un ratio alto puede afectar la rentabilidad.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_4_concentracion_mercado():
-    resultado = obtener_datos_modulo("AAPL")
+    resultado = obtener_datos_completos("AAPL")
     if resultado["status"] == "ok":
+        hist = resultado["hist"]
         info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        institucionales = info.get("heldPercentInstitutions")
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        inst_limpio = str(institucionales * 100) + "%" if institucionales is not None else "No disponible"
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        institucionales = info.get("heldPercentInstitutions")
+        inst_limpio = f"{round(institucionales * 100, 2)}%" if institucionales is not None else "No disponible"
         
         if institucionales is not None and institucionales > 0.8:
             en_alerta = True
@@ -247,79 +270,110 @@ def modulo_4_concentracion_mercado():
     return {"id": "M04", "nombre": "Concentración de Mercado (Top 5)", "ticker": "AAPL", "explicacion": "Mide el porcentaje de acciones en manos de grandes fondos. Si es muy alto, una venta masiva causaría un colapso.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_5_margen_beneficio():
-    resultado = obtener_datos_modulo("AMZN")
+    resultado = obtener_datos_completos("AMZN")
     if resultado["status"] == "ok":
-        info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        margen = info.get("operatingMargins")
+        hist = resultado["hist"]
+        q_fin = resultado["q_fin"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        margen_limpio = str(margen * 100) + "%" if margen is not None else "No disponible"
-        
-        if margen is not None and margen < 0.1:
-            en_alerta = True
-        elif margen is None:
-            en_alerta = True
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
         else:
-            en_alerta = False
+            precio_limpio = "No disponible"
+            
+        if q_fin is not None and not q_fin.empty and "Operating Income" in q_fin.index and "Total Revenue" in q_fin.index:
+            op_income = q_fin.loc["Operating Income"]
+            revenue = q_fin.loc["Total Revenue"]
+            if len(op_income) > 0 and len(revenue) > 0 and revenue.iloc[0] != 0:
+                margen = op_income.iloc[0] / revenue.iloc[0]
+                margen_limpio = f"{round(margen * 100, 2)}%"
+                en_alerta = margen < 0.1
+            else:
+                margen_limpio = "No disponible"
+                en_alerta = True
+        else:
+            margen_limpio = "No disponible"
+            en_alerta = True
             
         return {"id": "M05", "nombre": "Margen de Beneficio Operativo", "ticker": "AMZN", "explicacion": "Mide la eficiencia operativa. Un margen bajo indica que los costos se están comiendo las ganancias.", "precio_cierre": precio_limpio, "metrica_valor": margen_limpio, "en_alerta": en_alerta}
     return {"id": "M05", "nombre": "Margen de Beneficio Operativo", "ticker": "AMZN", "explicacion": "Mide la eficiencia operativa. Un margen bajo indica que los costos se están comiendo las ganancias.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_6_endeudamiento():
-    resultado = obtener_datos_modulo("META")
+    resultado = obtener_datos_completos("META")
     if resultado["status"] == "ok":
-        info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        deuda_equity = info.get("debtToEquity")
+        hist = resultado["hist"]
+        q_bal = resultado["q_bal"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        deuda_limpio = str(deuda_equity) if deuda_equity is not None else "No disponible"
-        
-        if deuda_equity is not None and deuda_equity > 2:
-            en_alerta = True
-        elif deuda_equity is None:
-            en_alerta = True
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
         else:
-            en_alerta = False
+            precio_limpio = "No disponible"
+            
+        if q_bal is not None and not q_bal.empty and "Total Debt" in q_bal.index and "Stockholders Equity" in q_bal.index:
+            debt = q_bal.loc["Total Debt"]
+            equity = q_bal.loc["Stockholders Equity"]
+            if len(debt) > 0 and len(equity) > 0 and equity.iloc[0] != 0:
+                ratio = debt.iloc[0] / equity.iloc[0]
+                deuda_limpio = f"{round(ratio, 2)}"
+                en_alerta = ratio > 2
+            else:
+                deuda_limpio = "No disponible"
+                en_alerta = True
+        else:
+            deuda_limpio = "No disponible"
+            en_alerta = True
             
         return {"id": "M06", "nombre": "Nivel de Endeudamiento Neto", "ticker": "META", "explicacion": "Compara la deuda total con el patrimonio. Un nivel alto significa que la empresa tiene un riesgo financiero peligroso.", "precio_cierre": precio_limpio, "metrica_valor": deuda_limpio, "en_alerta": en_alerta}
     return {"id": "M06", "nombre": "Nivel de Endeudamiento Neto", "ticker": "META", "explicacion": "Compara la deuda total con el patrimonio. Un nivel alto significa que la empresa tiene un riesgo financiero peligroso.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_7_volatilidad():
-    resultado = obtener_datos_modulo("AMD")
+    resultado = obtener_datos_completos("AMD")
     if resultado["status"] == "ok":
-        info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        beta = info.get("beta")
+        hist = resultado["hist"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        beta_limpio = str(beta) if beta is not None else "No disponible"
-        
-        if beta is not None and beta > 1.5:
-            en_alerta = True
-        elif beta is None:
-            en_alerta = True
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+            if len(hist) > 1:
+                returns = hist["Close"].pct_change().dropna()
+                if len(returns) > 0:
+                    vol = returns.std() * (252 ** 0.5) 
+                    vol_limpio = f"{round(vol * 100, 2)}%"
+                    en_alerta = vol > 0.4 
+                else:
+                    vol_limpio = "No disponible"
+                    en_alerta = True
+            else:
+                vol_limpio = "No disponible"
+                en_alerta = True
         else:
-            en_alerta = False
+            precio_limpio = "No disponible"
+            vol_limpio = "No disponible"
+            en_alerta = True
             
-        return {"id": "M07", "nombre": "Volatilidad del Sector (Implied Vol)", "ticker": "AMD", "explicacion": "El Beta indica cuánto más oscila la acción respecto al mercado. Un valor alto implica riesgo extremo en caídas.", "precio_cierre": precio_limpio, "metrica_valor": beta_limpio, "en_alerta": en_alerta}
-    return {"id": "M07", "nombre": "Volatilidad del Sector (Implied Vol)", "ticker": "AMD", "explicacion": "El Beta indica cuánto más oscila la acción respecto al mercado. Un valor alto implica riesgo extremo en caídas.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
+        return {"id": "M07", "nombre": "Volatilidad del Sector (Implied Vol)", "ticker": "AMD", "explicacion": "Mide las oscilaciones máximas recientes. Un valor alto implica riesgo extremo de caídas repentinas.", "precio_cierre": precio_limpio, "metrica_valor": vol_limpio, "en_alerta": en_alerta}
+    return {"id": "M07", "nombre": "Volatilidad del Sector (Implied Vol)", "ticker": "AMD", "explicacion": "Mide las oscilaciones máximas recientes. Un valor alto implica riesgo extremo de caídas repentinas.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_8_fcf_yield():
-    resultado = obtener_datos_modulo("AVGO")
+    resultado = obtener_datos_completos("AVGO")
     if resultado["status"] == "ok":
+        hist = resultado["hist"]
+        q_cash = resultado["q_cash"]
         info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        fcf = info.get("freeCashflow")
-        market_cap = info.get("marketCap")
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        
-        if fcf is not None and market_cap is not None and market_cap != 0:
-            yield_fcf = fcf / market_cap
-            yield_limpio = str(yield_fcf * 100) + "%"
-            en_alerta = yield_fcf < 0.02
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        if q_cash is not None and not q_cash.empty and "Free Cash Flow" in q_cash.index:
+            fcf = q_cash.loc["Free Cash Flow"]
+            market_cap = info.get("marketCap")
+            if len(fcf) > 0 and market_cap is not None and market_cap != 0:
+                yield_fcf = fcf.iloc[0] / market_cap
+                yield_limpio = f"{round(yield_fcf * 100, 2)}%"
+                en_alerta = yield_fcf < 0.02
+            else:
+                yield_limpio = "No disponible"
+                en_alerta = True
         else:
             yield_limpio = "No disponible"
             en_alerta = True
@@ -328,14 +382,18 @@ def modulo_8_fcf_yield():
     return {"id": "M08", "nombre": "Flujo de Caja Libre (FCF Yield)", "ticker": "AVGO", "explicacion": "Mide el efectivo real que genera la empresa respecto a su valor de mercado. Si es bajo, la acción está sobrevalorada.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_9_insiders_selling():
-    resultado = obtener_datos_modulo("SMCI")
+    resultado = obtener_datos_completos("SMCI")
     if resultado["status"] == "ok":
         info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        insiders = info.get("heldPercentInsiders")
+        hist = resultado["hist"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        insiders_limpio = str(insiders * 100) + "%" if insiders is not None else "No disponible"
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        insiders = info.get("heldPercentInsiders")
+        insiders_limpio = f"{round(insiders * 100, 2)}%" if insiders is not None else "No disponible"
         
         if insiders is not None and insiders < 0.01:
             en_alerta = True
@@ -348,19 +406,26 @@ def modulo_9_insiders_selling():
     return {"id": "M09", "nombre": "Insiders Selling (Venta de Directivos)", "ticker": "SMCI", "explicacion": "Mide si los directivos tienen acciones de su propia empresa. Si no tienen, puede ser porque saben que la acción va a caer.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_10_rd_gasto():
-    resultado = obtener_datos_modulo("PLTR")
+    resultado = obtener_datos_completos("PLTR")
     if resultado["status"] == "ok":
-        info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        rd = info.get("researchAndDevelopment")
-        ingresos = info.get("totalRevenue")
+        hist = resultado["hist"]
+        q_fin = resultado["q_fin"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        
-        if rd is not None and ingresos is not None and ingresos != 0:
-            ratio_rd = rd / ingresos
-            rd_limpio = str(ratio_rd * 100) + "%"
-            en_alerta = ratio_rd < 0.1
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        if q_fin is not None and not q_fin.empty and "Research And Development" in q_fin.index and "Total Revenue" in q_fin.index:
+            rd = q_fin.loc["Research And Development"]
+            revenue = q_fin.loc["Total Revenue"]
+            if len(rd) > 0 and len(revenue) > 0 and revenue.iloc[0] != 0:
+                ratio_rd = rd.iloc[0] / revenue.iloc[0]
+                rd_limpio = f"{round(ratio_rd * 100, 2)}%"
+                en_alerta = ratio_rd < 0.1
+            else:
+                rd_limpio = "No disponible"
+                en_alerta = True
         else:
             rd_limpio = "No disponible"
             en_alerta = True
@@ -369,14 +434,18 @@ def modulo_10_rd_gasto():
     return {"id": "M10", "nombre": "Gasto en I+D (R&D % Ingresos)", "ticker": "PLTR", "explicacion": "Evalúa si la empresa invierte lo suficiente en innovación. En IA, un gasto bajo significa que quedarán atrás frente a la competencia.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_11_primas_riesgo():
-    resultado = obtener_datos_modulo("ASML")
+    resultado = obtener_datos_completos("ASML")
     if resultado["status"] == "ok":
         info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        vol_impl = info.get("impliedVolatility")
+        hist = resultado["hist"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        vol_limpio = str(vol_impl * 100) + "%" if vol_impl is not None else "No disponible"
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        vol_impl = info.get("impliedVolatility")
+        vol_limpio = f"{round(vol_impl * 100, 2)}%" if vol_impl is not None else "No disponible"
         
         if vol_impl is not None and vol_impl > 0.4:
             en_alerta = True
@@ -389,19 +458,26 @@ def modulo_11_primas_riesgo():
     return {"id": "M11", "nombre": "Primas de Riesgo en Opciones", "ticker": "ASML", "explicacion": "Mide el miedo o incertidumbre en el mercado a través de las opciones. Una volatilidad implícita alta presagia grandes caídas.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_12_apalancamiento():
-    resultado = obtener_datos_modulo("TSM")
+    resultado = obtener_datos_completos("TSM")
     if resultado["status"] == "ok":
-        info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        activos = info.get("totalAssets")
-        patrimonio = info.get("totalEquity")
+        hist = resultado["hist"]
+        q_bal = resultado["q_bal"]
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
-        
-        if activos is not None and patrimonio is not None and patrimonio != 0:
-            apalancamiento = activos / patrimonio
-            apal_limpio = str(apalancamiento) + "x"
-            en_alerta = apalancamiento > 3
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        if q_bal is not None and not q_bal.empty and "Total Assets" in q_bal.index and "Stockholders Equity" in q_bal.index:
+            activos = q_bal.loc["Total Assets"]
+            patrimonio = q_bal.loc["Stockholders Equity"]
+            if len(activos) > 0 and len(patrimonio) > 0 and patrimonio.iloc[0] != 0:
+                apalancamiento = activos.iloc[0] / patrimonio.iloc[0]
+                apal_limpio = f"{round(apalancamiento, 2)}x"
+                en_alerta = apalancamiento > 3
+            else:
+                apal_limpio = "No disponible"
+                en_alerta = True
         else:
             apal_limpio = "No disponible"
             en_alerta = True
@@ -410,13 +486,17 @@ def modulo_12_apalancamiento():
     return {"id": "M12", "nombre": "Multiplicador de Apalancamiento", "ticker": "TSM", "explicacion": "Indica cuántos dólares de activos se tienen por cada dólar de capital propio. Si es muy alto, cualquier pérdida se multiplica exponencialmente.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_13_sentimiento():
-    resultado = obtener_datos_modulo("QCOM")
+    resultado = obtener_datos_completos("QCOM")
     if resultado["status"] == "ok":
+        hist = resultado["hist"]
         info = resultado["info"]
-        precio = info.get("currentPrice") or info.get("previousClose")
-        recomendacion = info.get("recommendationKey")
         
-        precio_limpio = str(precio) if precio is not None else "No disponible"
+        if hist is not None and not hist.empty:
+            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
+        else:
+            precio_limpio = "No disponible"
+            
+        recomendacion = info.get("recommendationKey")
         rec_limpio = str(recomendacion) if recomendacion is not None else "No disponible"
         
         if recomendacion is not None and recomendacion in ["sell", "reduce"]:
