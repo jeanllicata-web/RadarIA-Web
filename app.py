@@ -434,28 +434,51 @@ def modulo_10_rd_gasto():
     return {"id": "M10", "nombre": "Gasto en I+D (R&D % Ingresos)", "ticker": "PLTR", "explicacion": "Evalúa si la empresa invierte lo suficiente en innovación. En IA, un gasto bajo significa que quedarán atrás frente a la competencia.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_11_primas_riesgo():
-    resultado = obtener_datos_completos("ASML")
-    if resultado["status"] == "ok":
-        info = resultado["info"]
-        hist = resultado["hist"]
-        
+    precio_limpio = "No disponible"
+    resultado_opciones = "No disponible"
+    estado_alerta = "❌ Error de consulta"
+    en_alerta = True
+    
+    try:
+        ticker_obj = yf.Ticker("ASML")
+        hist = ticker_obj.history(period="5d", timeout=5)
         if hist is not None and not hist.empty:
             precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
             
-        vol_impl = info.get("impliedVolatility")
-        vol_limpio = f"{round(vol_impl * 100, 2)}%" if vol_impl is not None else "No disponible"
+        fechas_vencimiento = ticker_obj.options
+        if fechas_vencimiento:
+            proximo_vencimiento = fechas_vencimiento[0]
+            cadena_opciones = ticker_obj.option_chain(proximo_vencimiento)
+            calls = cadena_opciones.calls
+            volatilidad_promedio = round(calls['impliedVolatility'].mean() * 100, 2)
+            precio_prima_promedio = round(calls['lastPrice'].mean(), 2)
+            
+            resultado_opciones = f"Prima Promedio: ${precio_prima_promedio} | Volatilidad Implícita: {volatilidad_promedio}%"
+            
+            if volatilidad_promedio > 50:
+                estado_alerta = "⚠️ ALERTA ACTIVADA (Alta Incertidumbre)"
+                en_alerta = True
+            else:
+                estado_alerta = "✅ ESTABLE"
+                en_alerta = False
+        else:
+            resultado_opciones = "Sin opciones disponibles"
+            estado_alerta = "⚠️ ALERTA (Falta de Liquidez)"
+            en_alerta = True
+            
+    except Exception as e:
+        pass
         
-        if vol_impl is not None and vol_impl > 0.4:
-            en_alerta = True
-        elif vol_impl is None:
-            en_alerta = True
-        else:
-            en_alerta = False
-            
-        return {"id": "M11", "nombre": "Primas de Riesgo en Opciones", "ticker": "ASML", "explicacion": "Mide el miedo o incertidumbre en el mercado a través de las opciones. Una volatilidad implícita alta presagia grandes caídas.", "precio_cierre": precio_limpio, "metrica_valor": vol_limpio, "en_alerta": en_alerta}
-    return {"id": "M11", "nombre": "Primas de Riesgo en Opciones", "ticker": "ASML", "explicacion": "Mide el miedo o incertidumbre en el mercado a través de las opciones. Una volatilidad implícita alta presagia grandes caídas.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
+    return {
+        "id": "M11", 
+        "nombre": "Primas de Riesgo en Opciones", 
+        "ticker": "ASML", 
+        "explicacion": "Analiza el mercado de derivados para evaluar el coste de las primas y la protección de fondos de cobertura contra caídas.",
+        "precio_cierre": precio_limpio, 
+        "metrica_valor": resultado_opciones, 
+        "en_alerta": en_alerta,
+        "estado_especifico": estado_alerta
+    }
 
 def modulo_12_apalancamiento():
     resultado = obtener_datos_completos("TSM")
@@ -629,11 +652,19 @@ def main():
     for resultado in resultados:
         with st.expander(f"{resultado['id']} - {resultado['nombre']} ({resultado['ticker']})"):
             
-            estado_texto = "✅ Normal" if not resultado["en_alerta"] else "🚨 Alerta Activada"
-            
-            precio_str = f"${resultado['precio_cierre']}" if resultado['precio_cierre'] != "No disponible" else "No disponible"
-            
-            st.markdown(f"""**Métrica analizada:** {resultado['explicacion']}
+            if resultado['id'] == 'M11':
+                st.markdown(f"""**Métrica analizada:** {resultado['explicacion']}
+
+**Datos en Directo de Opciones:** {resultado['metrica_valor']}
+
+**Estado del Módulo:** {resultado['estado_especifico']}
+""")
+            else:
+                estado_texto = "✅ Normal" if not resultado["en_alerta"] else "🚨 Alerta Activada"
+                
+                precio_str = f"${resultado['precio_cierre']}" if resultado['precio_cierre'] != "No disponible" else "No disponible"
+                
+                st.markdown(f"""**Métrica analizada:** {resultado['explicacion']}
 
 **Último Precio de Cierre:** {precio_str}
 
