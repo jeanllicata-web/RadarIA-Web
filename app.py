@@ -1,6 +1,5 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 
@@ -100,54 +99,6 @@ st.markdown("""
         font-size: 0.9rem;
     }
     
-    .module-container {
-        margin-bottom: 10px;
-    }
-    
-    .module-title {
-        font-size: 1.1rem;
-        font-weight: 600;
-        margin: 5px 0;
-    }
-    
-    .module-ticker {
-        color: #00ccff;
-        font-weight: bold;
-    }
-    
-    .status-ok {
-        color: #00ff88;
-        font-weight: bold;
-    }
-    
-    .status-error {
-        color: #ff0044;
-        font-weight: bold;
-    }
-    
-    .metric-section {
-        margin-bottom: 15px;
-    }
-    
-    .metric-label {
-        color: #8899aa;
-        font-size: 0.9rem;
-        margin-bottom: 5px;
-    }
-    
-    .metric-value {
-        font-size: 1.2rem;
-        font-weight: bold;
-        margin-bottom: 5px;
-    }
-    
-    .metric-description {
-        color: #aab5c3;
-        font-size: 0.9rem;
-        margin-bottom: 15px;
-        line-height: 1.4;
-    }
-    
     .conclusion-container {
         background-color: #1a1f2e;
         border-radius: 10px;
@@ -206,583 +157,352 @@ def obtener_datos_modulo(ticker, timeout=5):
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
-        hist = stock.history(period="1mo", timeout=timeout)
-        return {"status": "ok", "info": info, "hist": hist}
+        return {"status": "ok", "info": info}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-def determinar_alerta_pe_ratio(info):
-    pe_ratio = info.get("trailingPE", None)
-    if pe_ratio is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si el P/E es muy alto (mayor a 100)
-    if pe_ratio > 100:
-        return True, f"{pe_ratio}"
-    else:
-        return False, f"{pe_ratio}"
-
-def determinar_alerta_crecimiento(info):
-    revenue_growth = info.get("revenueGrowth", None)
-    if revenue_growth is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si el crecimiento es negativo
-    if revenue_growth < 0:
-        return True, f"{revenue_growth * 100}%"
-    else:
-        return False, f"{revenue_growth * 100}%"
-
-def determinar_alerta_capex(info):
-    capex = info.get("capitalExpenditures", None)
-    total_revenue = info.get("totalRevenue", None)
-    
-    if capex is None or total_revenue is None:
-        return True, "No disponible"
-    
-    capex_ratio = abs(capex) / total_revenue
-    
-    # Consideramos alerta si CapEx es más del 20% de los ingresos
-    if capex_ratio > 0.2:
-        return True, f"{capex_ratio * 100}%"
-    else:
-        return False, f"{capex_ratio * 100}%"
-
-def determinar_alerta_concentracion(info):
-    held_percent_institutions = info.get("heldPercentInstitutions", None)
-    
-    if held_percent_institutions is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si más del 80% está en manos de instituciones
-    if held_percent_institutions > 0.8:
-        return True, f"{held_percent_institutions * 100}%"
-    else:
-        return False, f"{held_percent_institutions * 100}%"
-
-def determinar_alerta_margen(info):
-    operating_margins = info.get("operatingMargins", None)
-    
-    if operating_margins is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si el margen operativo es menor al 10%
-    if operating_margins < 0.1:
-        return True, f"{operating_margins * 100}%"
-    else:
-        return False, f"{operating_margins * 100}%"
-
-def determinar_alerta_endeudamiento(info):
-    debt_to_equity = info.get("debtToEquity", None)
-    
-    if debt_to_equity is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si la deuda es más de 2 veces el equity
-    if debt_to_equity > 2:
-        return True, f"{debt_to_equity}"
-    else:
-        return False, f"{debt_to_equity}"
-
-def determinar_alerta_volatilidad(info, hist):
-    beta = info.get("beta", None)
-    
-    if beta is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si el beta es mayor a 1.5
-    if beta > 1.5:
-        return True, f"{beta}"
-    else:
-        return False, f"{beta}"
-
-def determinar_alerta_fcf_yield(info):
-    fcf = info.get("freeCashflow", None)
-    market_cap = info.get("marketCap", None)
-    
-    if fcf is None or market_cap is None or market_cap == 0:
-        return True, "No disponible"
-    
-    fcf_yield = fcf / market_cap
-    
-    # Consideramos alerta si el FCF Yield es menor al 2%
-    if fcf_yield < 0.02:
-        return True, f"{fcf_yield * 100}%"
-    else:
-        return False, f"{fcf_yield * 100}%"
-
-def determinar_alerta_insiders(info):
-    held_percent_insiders = info.get("heldPercentInsiders", None)
-    
-    if held_percent_insiders is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si los insiders tienen menos del 1%
-    if held_percent_insiders < 0.01:
-        return True, f"{held_percent_insiders * 100}%"
-    else:
-        return False, f"{held_percent_insiders * 100}%"
-
-def determinar_alerta_rd(info):
-    rd = info.get("researchAndDevelopment", None)
-    total_revenue = info.get("totalRevenue", None)
-    
-    if rd is None or total_revenue is None or total_revenue == 0:
-        return True, "No disponible"
-    
-    rd_percentage = rd / total_revenue
-    
-    # Consideramos alerta si el gasto en R&D es menos del 10% de los ingresos
-    if rd_percentage < 0.1:
-        return True, f"{rd_percentage * 100}%"
-    else:
-        return False, f"{rd_percentage * 100}%"
-
-def determinar_alerta_primas(info):
-    implied_volatility = info.get("impliedVolatility", None)
-    
-    if implied_volatility is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si la volatilidad implícita es mayor al 40%
-    if implied_volatility > 0.4:
-        return True, f"{implied_volatility * 100}%"
-    else:
-        return False, f"{implied_volatility * 100}%"
-
-def determinar_alerta_apalancamiento(info):
-    total_assets = info.get("totalAssets", None)
-    total_equity = info.get("totalEquity", None)
-    
-    if total_assets is None or total_equity is None or total_equity == 0:
-        return True, "No disponible"
-    
-    equity_multiplier = total_assets / total_equity
-    
-    # Consideramos alerta si el multiplicador es mayor a 3
-    if equity_multiplier > 3:
-        return True, f"{equity_multiplier}x"
-    else:
-        return False, f"{equity_multiplier}x"
-
-def determinar_alerta_sentimiento(info):
-    recommendation_key = info.get("recommendationKey", None)
-    
-    if recommendation_key is None:
-        return True, "No disponible"
-    
-    # Consideramos alerta si la recomendación es vender o reducir
-    if recommendation_key in ["sell", "reduce"]:
-        return True, f"{recommendation_key}"
-    else:
-        return False, f"{recommendation_key}"
+        return {"status": "error"}
 
 def modulo_1_pe_ratio():
     resultado = obtener_datos_modulo("NVDA")
-    datos = {
-        "id": "M01", 
-        "nombre": "Múltiplos de Valoración (P/E Ratio)", 
-        "ticker": "NVDA",
-        "explicacion": "El ratio P/E (Precio/Beneficio) mide cuánto están dispuestos a pagar los inversores por cada dólar de ganancias de la empresa. Un P/E muy alto puede indicar que las acciones están sobrevaloradas y existe riesgo de corrección.",
-        "metrica": "P/E Trailing"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_pe_ratio(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        pe_ratio = info.get("trailingPE")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        pe_limpio = str(pe_ratio) if pe_ratio is not None else "No disponible"
+        
+        if pe_ratio is not None and pe_ratio > 100:
+            en_alerta = True
+        elif pe_ratio is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {
+            "id": "M01", "nombre": "Múltiplos de Valoración (P/E Ratio)", "ticker": "NVDA",
+            "explicacion": "Mide cuánto pagan los inversores por cada dólar de ganancia. Un valor muy alto sugiere que la acción está cara.",
+            "precio_cierre": precio_limpio, "metrica_valor": pe_limpio, "en_alerta": en_alerta
+        }
+    return {"id": "M01", "nombre": "Múltiplos de Valoración (P/E Ratio)", "ticker": "NVDA", "explicacion": "Mide cuánto pagan los inversores por cada dólar de ganancia. Un valor muy alto sugiere que la acción está cara.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_2_crecimiento_ingresos():
     resultado = obtener_datos_modulo("MSFT")
-    datos = {
-        "id": "M02", 
-        "nombre": "Crecimiento de Ingresos vs Expectativas", 
-        "ticker": "MSFT",
-        "explicacion": "Mide si los ingresos de la empresa están creciendo al ritmo esperado por los analistas. Un crecimiento inferior a las expectativas puede señalizar que el negocio se está desacelerando.",
-        "metrica": "Crecimiento de Ingresos"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_crecimiento(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        crecimiento = info.get("revenueGrowth")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        crecimiento_limpio = str(crecimiento * 100) + "%" if crecimiento is not None else "No disponible"
+        
+        if crecimiento is not None and crecimiento < 0:
+            en_alerta = True
+        elif crecimiento is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {"id": "M02", "nombre": "Crecimiento de Ingresos vs Expectativas", "ticker": "MSFT", "explicacion": "Evalúa si los ingresos crecen al ritmo esperado. Una caída indica desaceleración del negocio.", "precio_cierre": precio_limpio, "metrica_valor": crecimiento_limpio, "en_alerta": en_alerta}
+    return {"id": "M02", "nombre": "Crecimiento de Ingresos vs Expectativas", "ticker": "MSFT", "explicacion": "Evalúa si los ingresos crecen al ritmo esperado. Una caída indica desaceleración del negocio.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_3_capex_bigtech():
     resultado = obtener_datos_modulo("GOOGL")
-    datos = {
-        "id": "M03", 
-        "nombre": "Inversión en CapEx de Big Tech", 
-        "ticker": "GOOGL",
-        "explicacion": "Analiza cuánto invierte la empresa en infraestructura y equipos (CapEx) en relación con sus ingresos. Una inversión excesiva podría generar problemas de rentabilidad si no se traduce en crecimiento futuro.",
-        "metrica": "CapEx / Ingresos"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_capex(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        capex = info.get("capitalExpenditures")
+        ingresos = info.get("totalRevenue")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        
+        if capex is not None and ingresos is not None and ingresos != 0:
+            ratio = abs(capex) / ingresos
+            ratio_limpio = str(ratio * 100) + "%"
+            en_alerta = ratio > 0.2
+        else:
+            ratio_limpio = "No disponible"
+            en_alerta = True
+            
+        return {"id": "M03", "nombre": "Inversión en CapEx de Big Tech", "ticker": "GOOGL", "explicacion": "Analiza la inversión en infraestructura respecto a sus ingresos. Un ratio alto puede afectar la rentabilidad.", "precio_cierre": precio_limpio, "metrica_valor": ratio_limpio, "en_alerta": en_alerta}
+    return {"id": "M03", "nombre": "Inversión en CapEx de Big Tech", "ticker": "GOOGL", "explicacion": "Analiza la inversión en infraestructura respecto a sus ingresos. Un ratio alto puede afectar la rentabilidad.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_4_concentracion_mercado():
     resultado = obtener_datos_modulo("AAPL")
-    datos = {
-        "id": "M04", 
-        "nombre": "Concentración de Mercado (Top 5)", 
-        "ticker": "AAPL",
-        "explicacion": "Evalúa qué porcentaje de las acciones está en manos de grandes instituciones financieras. Una concentración excesiva puede hacer que el mercado sea más volátil si estas instituciones deciden vender masivamente.",
-        "metrica": "% en manos de Instituciones"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_concentracion(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        institucionales = info.get("heldPercentInstitutions")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        inst_limpio = str(institucionales * 100) + "%" if institucionales is not None else "No disponible"
+        
+        if institucionales is not None and institucionales > 0.8:
+            en_alerta = True
+        elif institucionales is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {"id": "M04", "nombre": "Concentración de Mercado (Top 5)", "ticker": "AAPL", "explicacion": "Mide el porcentaje de acciones en manos de grandes fondos. Si es muy alto, una venta masiva causaría un colapso.", "precio_cierre": precio_limpio, "metrica_valor": inst_limpio, "en_alerta": en_alerta}
+    return {"id": "M04", "nombre": "Concentración de Mercado (Top 5)", "ticker": "AAPL", "explicacion": "Mide el porcentaje de acciones en manos de grandes fondos. Si es muy alto, una venta masiva causaría un colapso.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_5_margen_beneficio():
     resultado = obtener_datos_modulo("AMZN")
-    datos = {
-        "id": "M05", 
-        "nombre": "Margen de Beneficio Operativo", 
-        "ticker": "AMZN",
-        "explicacion": "Mide la eficiencia operativa de la empresa calculando qué porcentaje de cada dólar de ingresos queda como beneficio después de cubrir los costos operativos. Un margen bajo puede indicar problemas de eficiencia o competitividad.",
-        "metrica": "Margen Operativo"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_margen(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        margen = info.get("operatingMargins")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        margen_limpio = str(margen * 100) + "%" if margen is not None else "No disponible"
+        
+        if margen is not None and margen < 0.1:
+            en_alerta = True
+        elif margen is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {"id": "M05", "nombre": "Margen de Beneficio Operativo", "ticker": "AMZN", "explicacion": "Mide la eficiencia operativa. Un margen bajo indica que los costos se están comiendo las ganancias.", "precio_cierre": precio_limpio, "metrica_valor": margen_limpio, "en_alerta": en_alerta}
+    return {"id": "M05", "nombre": "Margen de Beneficio Operativo", "ticker": "AMZN", "explicacion": "Mide la eficiencia operativa. Un margen bajo indica que los costos se están comiendo las ganancias.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_6_endeudamiento():
     resultado = obtener_datos_modulo("META")
-    datos = {
-        "id": "M06", 
-        "nombre": "Nivel de Endeudamiento Neto", 
-        "ticker": "META",
-        "explicacion": "Analiza la relación entre la deuda total de la empresa y su valor patrimonial (equity). Un nivel de deuda elevado respecto al patrimonio puede aumentar significativamente el riesgo financiero.",
-        "metrica": "Deuda / Equity"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_endeudamiento(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        deuda_equity = info.get("debtToEquity")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        deuda_limpio = str(deuda_equity) if deuda_equity is not None else "No disponible"
+        
+        if deuda_equity is not None and deuda_equity > 2:
+            en_alerta = True
+        elif deuda_equity is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {"id": "M06", "nombre": "Nivel de Endeudamiento Neto", "ticker": "META", "explicacion": "Compara la deuda total con el patrimonio. Un nivel alto significa que la empresa tiene un riesgo financiero peligroso.", "precio_cierre": precio_limpio, "metrica_valor": deuda_limpio, "en_alerta": en_alerta}
+    return {"id": "M06", "nombre": "Nivel de Endeudamiento Neto", "ticker": "META", "explicacion": "Compara la deuda total con el patrimonio. Un nivel alto significa que la empresa tiene un riesgo financiero peligroso.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_7_volatilidad():
     resultado = obtener_datos_modulo("AMD")
-    datos = {
-        "id": "M07", 
-        "nombre": "Volatilidad del Sector (Implied Vol)", 
-        "ticker": "AMD",
-        "explicacion": "El Beta mide cómo se mueve la acción en relación con el mercado general. Un Beta mayor a 1 indica que la acción es más volátil que el mercado, lo que implica mayor riesgo en periodos de turbulencia.",
-        "metrica": "Beta"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        hist = resultado["hist"]
-        alerta, valor = determinar_alerta_volatilidad(info, hist)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        beta = info.get("beta")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        beta_limpio = str(beta) if beta is not None else "No disponible"
+        
+        if beta is not None and beta > 1.5:
+            en_alerta = True
+        elif beta is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {"id": "M07", "nombre": "Volatilidad del Sector (Implied Vol)", "ticker": "AMD", "explicacion": "El Beta indica cuánto más oscila la acción respecto al mercado. Un valor alto implica riesgo extremo en caídas.", "precio_cierre": precio_limpio, "metrica_valor": beta_limpio, "en_alerta": en_alerta}
+    return {"id": "M07", "nombre": "Volatilidad del Sector (Implied Vol)", "ticker": "AMD", "explicacion": "El Beta indica cuánto más oscila la acción respecto al mercado. Un valor alto implica riesgo extremo en caídas.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_8_fcf_yield():
     resultado = obtener_datos_modulo("AVGO")
-    datos = {
-        "id": "M08", 
-        "nombre": "Flujo de Caja Libre (FCF Yield)", 
-        "ticker": "AVGO",
-        "explicacion": "El FCF Yield mide el flujo de caja libre generado por la empresa en relación con su valor de mercado. Un yield bajo puede indicar que la acción está cara respecto al efectivo real que genera.",
-        "metrica": "FCF Yield"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_fcf_yield(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        fcf = info.get("freeCashflow")
+        market_cap = info.get("marketCap")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        
+        if fcf is not None and market_cap is not None and market_cap != 0:
+            yield_fcf = fcf / market_cap
+            yield_limpio = str(yield_fcf * 100) + "%"
+            en_alerta = yield_fcf < 0.02
+        else:
+            yield_limpio = "No disponible"
+            en_alerta = True
+            
+        return {"id": "M08", "nombre": "Flujo de Caja Libre (FCF Yield)", "ticker": "AVGO", "explicacion": "Mide el efectivo real que genera la empresa respecto a su valor de mercado. Si es bajo, la acción está sobrevalorada.", "precio_cierre": precio_limpio, "metrica_valor": yield_limpio, "en_alerta": en_alerta}
+    return {"id": "M08", "nombre": "Flujo de Caja Libre (FCF Yield)", "ticker": "AVGO", "explicacion": "Mide el efectivo real que genera la empresa respecto a su valor de mercado. Si es bajo, la acción está sobrevalorada.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_9_insiders_selling():
     resultado = obtener_datos_modulo("SMCI")
-    datos = {
-        "id": "M09", 
-        "nombre": "Insiders Selling (Venta de Directivos)", 
-        "ticker": "SMCI",
-        "explicacion": "Analiza el porcentaje de acciones en manos de directivos y empleados de la empresa. Una participación muy baja de los insiders puede ser señal de que los que mejor conocen la empresa no confían en su futuro.",
-        "metrica": "% en manos de Insiders"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_insiders(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        insiders = info.get("heldPercentInsiders")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        insiders_limpio = str(insiders * 100) + "%" if insiders is not None else "No disponible"
+        
+        if insiders is not None and insiders < 0.01:
+            en_alerta = True
+        elif insiders is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {"id": "M09", "nombre": "Insiders Selling (Venta de Directivos)", "ticker": "SMCI", "explicacion": "Mide si los directivos tienen acciones de su propia empresa. Si no tienen, puede ser porque saben que la acción va a caer.", "precio_cierre": precio_limpio, "metrica_valor": insiders_limpio, "en_alerta": en_alerta}
+    return {"id": "M09", "nombre": "Insiders Selling (Venta de Directivos)", "ticker": "SMCI", "explicacion": "Mide si los directivos tienen acciones de su propia empresa. Si no tienen, puede ser porque saben que la acción va a caer.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_10_rd_gasto():
     resultado = obtener_datos_modulo("PLTR")
-    datos = {
-        "id": "M10", 
-        "nombre": "Gasto en I+D (R&D % Ingresos)", 
-        "ticker": "PLTR",
-        "explicacion": "Mide qué porcentaje de los ingresos se invierte en investigación y desarrollo. Para empresas tecnológicas, un gasto en I+D bajo puede indicar falta de innovación futura, especialmente en el competitivo sector de la IA.",
-        "metrica": "R&D / Ingresos"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_rd(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        rd = info.get("researchAndDevelopment")
+        ingresos = info.get("totalRevenue")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        
+        if rd is not None and ingresos is not None and ingresos != 0:
+            ratio_rd = rd / ingresos
+            rd_limpio = str(ratio_rd * 100) + "%"
+            en_alerta = ratio_rd < 0.1
+        else:
+            rd_limpio = "No disponible"
+            en_alerta = True
+            
+        return {"id": "M10", "nombre": "Gasto en I+D (R&D % Ingresos)", "ticker": "PLTR", "explicacion": "Evalúa si la empresa invierte lo suficiente en innovación. En IA, un gasto bajo significa que quedarán atrás frente a la competencia.", "precio_cierre": precio_limpio, "metrica_valor": rd_limpio, "en_alerta": en_alerta}
+    return {"id": "M10", "nombre": "Gasto en I+D (R&D % Ingresos)", "ticker": "PLTR", "explicacion": "Evalúa si la empresa invierte lo suficiente en innovación. En IA, un gasto bajo significa que quedarán atrás frente a la competencia.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_11_primas_riesgo():
     resultado = obtener_datos_modulo("ASML")
-    datos = {
-        "id": "M11", 
-        "nombre": "Primas de Riesgo en Opciones", 
-        "ticker": "ASML",
-        "explicacion": "La volatilidad implícita refleja las expectativas del mercado sobre futuros movimientos del precio. Una volatilidad implícita alta indica que los inversores esperan grandes oscilaciones, señal de incertidumbre y riesgo.",
-        "metrica": "Volatilidad Implícita"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_primas(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        vol_impl = info.get("impliedVolatility")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        vol_limpio = str(vol_impl * 100) + "%" if vol_impl is not None else "No disponible"
+        
+        if vol_impl is not None and vol_impl > 0.4:
+            en_alerta = True
+        elif vol_impl is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {"id": "M11", "nombre": "Primas de Riesgo en Opciones", "ticker": "ASML", "explicacion": "Mide el miedo o incertidumbre en el mercado a través de las opciones. Una volatilidad implícita alta presagia grandes caídas.", "precio_cierre": precio_limpio, "metrica_valor": vol_limpio, "en_alerta": en_alerta}
+    return {"id": "M11", "nombre": "Primas de Riesgo en Opciones", "ticker": "ASML", "explicacion": "Mide el miedo o incertidumbre en el mercado a través de las opciones. Una volatilidad implícita alta presagia grandes caídas.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_12_apalancamiento():
     resultado = obtener_datos_modulo("TSM")
-    datos = {
-        "id": "M12", 
-        "nombre": "Multiplicador de Apalancamiento", 
-        "ticker": "TSM",
-        "explicacion": "El multiplicador de apalancamiento mide cuántos dólares de activos tiene la empresa por cada dólar de patrimonio. Un multiplicador alto indica que la empresa está muy apalancada, lo que amplifica tanto las ganancias como las pérdidas.",
-        "metrica": "Multiplicador de Apalancamiento"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_apalancamiento(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        activos = info.get("totalAssets")
+        patrimonio = info.get("totalEquity")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        
+        if activos is not None and patrimonio is not None and patrimonio != 0:
+            apalancamiento = activos / patrimonio
+            apal_limpio = str(apalancamiento) + "x"
+            en_alerta = apalancamiento > 3
+        else:
+            apal_limpio = "No disponible"
+            en_alerta = True
+            
+        return {"id": "M12", "nombre": "Multiplicador de Apalancamiento", "ticker": "TSM", "explicacion": "Indica cuántos dólares de activos se tienen por cada dólar de capital propio. Si es muy alto, cualquier pérdida se multiplica exponencialmente.", "precio_cierre": precio_limpio, "metrica_valor": apal_limpio, "en_alerta": en_alerta}
+    return {"id": "M12", "nombre": "Multiplicador de Apalancamiento", "ticker": "TSM", "explicacion": "Indica cuántos dólares de activos se tienen por cada dólar de capital propio. Si es muy alto, cualquier pérdida se multiplica exponencialmente.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
 def modulo_13_sentimiento():
     resultado = obtener_datos_modulo("QCOM")
-    datos = {
-        "id": "M13", 
-        "nombre": "Sentimiento del Mercado", 
-        "ticker": "QCOM",
-        "explicacion": "Analiza la recomendación general de los analistas de Wall Street sobre la acción. Una recomendación de venta o reducción de posición puede ser una señal de alarma sobre las perspectivas de la empresa.",
-        "metrica": "Recomendación de Analistas"
-    }
-    
     if resultado["status"] == "ok":
         info = resultado["info"]
-        alerta, valor = determinar_alerta_sentimiento(info)
-        datos["estado"] = "alerta" if alerta else "ok"
-        datos["valor"] = valor
-    else:
-        datos["estado"] = "error"
-        datos["valor"] = "No disponible"
-    
-    return datos
+        precio = info.get("currentPrice") or info.get("previousClose")
+        recomendacion = info.get("recommendationKey")
+        
+        precio_limpio = str(precio) if precio is not None else "No disponible"
+        rec_limpio = str(recomendacion) if recomendacion is not None else "No disponible"
+        
+        if recomendacion is not None and recomendacion in ["sell", "reduce"]:
+            en_alerta = True
+        elif recomendacion is None:
+            en_alerta = True
+        else:
+            en_alerta = False
+            
+        return {"id": "M13", "nombre": "Sentimiento del Mercado", "ticker": "QCOM", "explicacion": "Resume lo que opinan los analistas de Wall Street. Si la recomendación es vender, es una señal de alarma clara sobre la empresa.", "precio_cierre": precio_limpio, "metrica_valor": rec_limpio, "en_alerta": en_alerta}
+    return {"id": "M13", "nombre": "Sentimiento del Mercado", "ticker": "QCOM", "explicacion": "Resume lo que opinan los analistas de Wall Street. Si la recomendación es vender, es una señal de alarma clara sobre la empresa.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
 
-def crear_grafico_riesgo(nivel_riesgo):
-    # Crear datos para el gráfico de líneas
-    x = list(range(0, 14))
-    y = [nivel_riesgo] * 14
-    
-    # Crear figura
+def crear_grafico_riesgo(historial):
     fig = go.Figure()
     
-    # Añadir zonas de colores
-    fig.add_shape(type="rect", x0=0, y0=0, x1=3, y1=14, 
-                  fillcolor="rgba(0, 255, 136, 0.1)", line_width=0)
-    fig.add_shape(type="rect", x0=4, y0=0, x1=7, y1=14, 
-                  fillcolor="rgba(255, 221, 0, 0.1)", line_width=0)
-    fig.add_shape(type="rect", x0=8, y0=0, x1=13, y1=14, 
-                  fillcolor="rgba(255, 0, 68, 0.1)", line_width=0)
+    fig.add_shape(type="rect", x0=-0.5, y0=0, x1=3.5, y1=13.5, fillcolor="rgba(0, 255, 136, 0.05)", line_width=0)
+    fig.add_shape(type="rect", x0=3.5, y0=0, x1=7.5, y1=13.5, fillcolor="rgba(255, 221, 0, 0.05)", line_width=0)
+    fig.add_shape(type="rect", x0=7.5, y0=0, x1=13.5, y1=13.5, fillcolor="rgba(255, 0, 68, 0.05)", line_width=0)
     
-    # Añadir línea de riesgo
-    fig.add_trace(go.Scatter(
-        x=x,
-        y=y,
-        mode='lines',
-        line=dict(color='#00ff88', width=3),
-        name='Nivel de Riesgo'
-    ))
+    if len(historial) > 0:
+        horas = [p["hora"] for p in historial]
+        scores = [p["score"] for p in historial]
+        
+        fig.add_trace(go.Scatter(
+            x=horas,
+            y=scores,
+            mode='lines+markers',
+            line=dict(color='#00ff88', width=3),
+            marker=dict(color='#00ff88', size=10, line=dict(color='white', width=2)),
+            name='Evolución del Riesgo'
+        ))
+        
+        fig.update_xaxes(type='category', tickangle=45)
+    else:
+        fig.add_trace(go.Scatter(x=["Esperando datos..."], y=[0], mode='markers', marker=dict(color='gray', size=10)))
+        fig.update_xaxes(type='category')
+        
+    fig.add_annotation(x=1.5, y=12.5, text="ZONA VERDE\n(Riesgo Bajo)", showarrow=False, font=dict(color="rgba(0, 255, 136, 0.5)", size=12))
+    fig.add_annotation(x=5.5, y=12.5, text="ZONA AMARILLA\n(Riesgo Moderado)", showarrow=False, font=dict(color="rgba(255, 221, 0, 0.5)", size=12))
+    fig.add_annotation(x=10.5, y=12.5, text="ZONA ROJA\n(Riesgo Crítico)", showarrow=False, font=dict(color="rgba(255, 0, 68, 0.5)", size=12))
     
-    # Añadir punto indicador
-    fig.add_trace(go.Scatter(
-        x=[nivel_riesgo],
-        y=[nivel_riesgo],
-        mode='markers',
-        marker=dict(color='#00ff88', size=15, line=dict(color='white', width=2)),
-        name='Riesgo Actual'
-    ))
-    
-    # Configurar layout
     fig.update_layout(
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color='white'),
-        title=dict(
-            text='Termómetro de Riesgo del Sector IA',
-            font=dict(size=18, color='white'),
-            x=0.5,
-            xanchor='center'
-        ),
-        xaxis=dict(
-            title='Módulos',
-            range=[0, 13],
-            gridcolor='rgba(255,255,255,0.1)',
-            tick0=0,
-            dtick=1
-        ),
-        yaxis=dict(
-            title='Nivel de Riesgo',
-            range=[0, 13],
-            gridcolor='rgba(255,255,255,0.1)',
-            tick0=0,
-            dtick=1
-        ),
-        margin=dict(l=50, r=50, t=50, b=50),
+        title=dict(text='Historial de Nivel de Riesgo del Sector IA', font=dict(size=18, color='white'), x=0.5, xanchor='center'),
+        yaxis=dict(title='Número de Alertas', range=[0, 13], gridcolor='rgba(255,255,255,0.1)', tick0=0, dtick=1),
+        margin=dict(l=50, r=50, t=60, b=80),
         height=400,
         showlegend=False
     )
-    
-    # Añadir anotaciones para las zonas
-    fig.add_annotation(x=1.5, y=12, text="Zona Verde\n(Riesgo Bajo)", 
-                       showarrow=False, font=dict(color="rgba(0, 255, 136, 0.7)"))
-    fig.add_annotation(x=5.5, y=12, text="Zona Amarilla\n(Riesgo Moderado)", 
-                       showarrow=False, font=dict(color="rgba(255, 221, 0, 0.7)"))
-    fig.add_annotation(x=10.5, y=12, text="Zona Roja\n(Riesgo Crítico)", 
-                       showarrow=False, font=dict(color="rgba(255, 0, 68, 0.7)"))
     
     return fig
 
 def generar_conclusion(alertas):
     if alertas == 0:
-        return """
-        El sector de la Inteligencia Artificial presenta **fundamentales sólidos y estables** en este momento. 
-        Todos los indicadores analizados se encuentran dentro de rangos saludables, lo que sugiere que 
-        las valoraciones están justificadas por el crecimiento real de los negocios y no por especulación excesiva. 
-        No se detectan señales de burbuja inminente, y las empresas del sector muestran un equilibrio 
-        adecuado entre crecimiento, rentabilidad y riesgo financiero.
-        """
+        return "El sector de la Inteligencia Artificial presenta **fundamentales sólidos y estables** en este momento. Todos los indicadores analizados se encuentran dentro de rangos saludables, lo que sugiere que las valoraciones están justificadas por el crecimiento real de los negocios. No se detectan señales de burbuja inminente."
     elif alertas <= 3:
-        return f"""
-        El sector de la Inteligencia Artificial muestra **algunos puntos de atención** con {alertas} indicadores 
-        en zona de alerta. Aunque la mayoría de los fundamentales se mantienen sólidos, es recomendable 
-        monitorear de cerca estos aspectos que podrían convertirse en problemas más significativos si 
-        la tendencia continúa. No hay señales claras de burbuja, pero se advierte cierta tensión 
-        en aspectos específicos que merecen vigilancia.
-        """
+        return f"El sector de la IA muestra **algunos puntos de atención** con {alertas} indicadores en zona de alerta. Aunque la mayoría de los fundamentales se mantienen sólidos, se recomienda monitorear de cerca estos aspectos. No hay señales claras de burbuja, pero existe cierta tensión en el mercado."
     elif alertas <= 7:
-        return f"""
-        **PRECAUCIÓN:** El sector de la IA presenta {alertas} indicadores en zona de alerta, lo que sugiere 
-        un **incremento significativo en el nivel de riesgo**. Varios fundamentales clave están mostrando 
-        señales de estrés, lo que podría indicar un sobrecalentamiento parcial del sector. Se recomienda 
-        extremar la cautela y considerar reducir la exposición a los activos más afectados. 
-        Aunque no podemos confirmar una burbuja generalizada, los signos de exceso son cada vez más evidentes.
-        """
+        return f"**PRECAUCIÓN:** El sector presenta {alertas} indicadores en alerta, lo que sugiere un **incremento significativo en el nivel de riesgo**. Varios fundamentales clave muestran señales de estrés. Se recomienda extremar la cautela y considerar reducir la exposición a los activos más afectados."
     else:
-        return f"""
-        **ALERTA ROJA:** Con {alertas} indicadores en zona de alerta, los datos sugieren un **sobrecalentamiento 
-        severo en el sector de la IA**. Múltiples fundamentales están en niveles preocupantes, 
-        con señales claras de sobrevaloración, apalancamiento excesivo y cambio en el sentimiento del mercado. 
-        Existe un **riesgo muy elevado de corrección significativa o estallido de burbuja** en el corto/medio plazo. 
-        Se recomienda encarecidamente reducir la exposición al sector y considerar estrategias de protección 
-        de capital. Esta situación requiere máxima precaución y monitorización constante.
-        """
+        return f"**ALERTA ROJA:** Con {alertas} indicadores en alerta, los datos sugieren un **sobrecalentamiento severo en el sector de la IA**. Existe un **riesgo muy elevado de corrección significativa o estallido de burbuja**. Se recomienda encarecidamente reducir la exposición al sector y considerar estrategias de protección de capital."
 
 def main():
+    if 'historial_scores' not in st.session_state:
+        st.session_state.historial_scores = []
+
     modulos = [
-        modulo_1_pe_ratio,
-        modulo_2_crecimiento_ingresos,
-        modulo_3_capex_bigtech,
-        modulo_4_concentracion_mercado,
-        modulo_5_margen_beneficio,
-        modulo_6_endeudamiento,
-        modulo_7_volatilidad,
-        modulo_8_fcf_yield,
-        modulo_9_insiders_selling,
-        modulo_10_rd_gasto,
-        modulo_11_primas_riesgo,
-        modulo_12_apalancamiento,
+        modulo_1_pe_ratio, modulo_2_crecimiento_ingresos, modulo_3_capex_bigtech,
+        modulo_4_concentracion_mercado, modulo_5_margen_beneficio, modulo_6_endeudamiento,
+        modulo_7_volatilidad, modulo_8_fcf_yield, modulo_9_insiders_selling,
+        modulo_10_rd_gasto, modulo_11_primas_riesgo, modulo_12_apalancamiento,
         modulo_13_sentimiento
     ]
     
     resultados = [modulo() for modulo in modulos]
     
-    # Contar alertas (estado "alerta" o "error")
-    alertas = sum(1 for resultado in resultados if resultado["estado"] in ["alerta", "error"])
+    alertas = sum(1 for resultado in resultados if resultado["en_alerta"] == True)
     
-    # Determinar clase del semáforo
+    ahora = datetime.now().strftime('%H:%M:%S')
+    st.session_state.historial_scores.append({"hora": ahora, "score": alertas})
+    
+    if len(st.session_state.historial_scores) > 20:
+        st.session_state.historial_scores = st.session_state.historial_scores[-20:]
+    
     if alertas == 0:
         semaforo_clase = "verde"
         semaforo_emoji = "✅"
@@ -799,7 +519,6 @@ def main():
         semaforo_texto = "ALERTA ROJA"
         semaforo_desc = f"CRÍTICO: {alertas} módulos en alerta. Alto riesgo de burbuja en el sector IA."
     
-    # Encabezado
     st.markdown("""
     <div class="main-header">
         <h1>📡 RadarIA</h1>
@@ -807,7 +526,6 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Semáforo
     st.markdown(f"""
     <div class="semaforo-container">
         <div class="semaforo {semaforo_clase}">{semaforo_emoji}</div>
@@ -818,46 +536,32 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Información de actualización
     st.markdown(f"""
     <div style="text-align: center; margin-bottom: 20px;">
         <span style="background-color: #1a1f2e; padding: 8px 15px; border-radius: 20px; font-size: 0.9rem;">
-            Última actualización: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 
-            Módulos en alerta: {alertas}/13
+            Última actualización: {ahora} | Módulos en alerta: {alertas}/13
         </span>
     </div>
     """, unsafe_allow_html=True)
     
-    # Gráfico de termómetro de riesgo
-    st.plotly_chart(crear_grafico_riesgo(alertas), use_container_width=True)
+    st.plotly_chart(crear_grafico_riesgo(st.session_state.historial_scores), use_container_width=True)
     
-    # Módulos con expanders
     for resultado in resultados:
-        estado = resultado["estado"]
-        clase_status = "status-ok" if estado == "ok" else "status-error"
-        texto_status = "✅ Normal" if estado == "ok" else "🚨 Alerta"
-        
         with st.expander(f"{resultado['id']} - {resultado['nombre']} ({resultado['ticker']})"):
-            st.markdown(f"""
-            <div class="module-container">
-                <div class="metric-section">
-                    <div class="metric-label">Métrica analizada</div>
-                    <div class="metric-description">{resultado['explicacion']}</div>
-                </div>
-                
-                <div class="metric-section">
-                    <div class="metric-label">Resultado de Wall Street ({resultado['metrica']})</div>
-                    <div class="metric-value">{resultado['valor']}</div>
-                </div>
-                
-                <div class="metric-section">
-                    <div class="metric-label">Estado de Alerta</div>
-                    <div class="{clase_status}">{texto_status}</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            
+            estado_texto = "✅ Normal" if not resultado["en_alerta"] else "🚨 Alerta Activada"
+            
+            precio_str = f"${resultado['precio_cierre']}" if resultado['precio_cierre'] != "No disponible" else "No disponible"
+            
+            st.markdown(f"""**Métrica analizada:** {resultado['explicacion']}
+
+**Último Precio de Cierre:** {precio_str}
+
+**Resultado de Wall Street ({resultado['nombre']}):** {resultado['metrica_valor']}
+
+**Estado de Alerta:** {estado_texto}
+""")
     
-    # Conclusión ejecutiva
     st.markdown("""
     <div class="conclusion-container">
         <div class="conclusion-title">🔍 CONCLUSIÓN EJECUTIVA DEL RADAR</div>
@@ -871,13 +575,10 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Botón de actualización
-    st.markdown("""
-    <div class="refresh-button">
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="refresh-button">', unsafe_allow_html=True)
     
     if st.button("🔄 Actualizar Datos en Tiempo Real"):
-        st.experimental_rerun()
+        st.rerun()
     
     st.markdown("""
     </div>
