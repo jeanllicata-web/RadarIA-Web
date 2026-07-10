@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -243,11 +244,11 @@ def modulo_1_pe_ratio():
         info = resultado["info"]
         datos["estado"] = "ok"
         datos["valores"] = {
-            "P/E Trailing": info.get("trailingPE", "N/A"),
-            "P/E Forward": info.get("forwardPE", "N/A"),
-            "PEG Ratio": info.get("pegRatio", "N/A"),
-            "Price/Book": info.get("priceToBook", "N/A"),
-            "Price/Sales": info.get("priceToSalesTrailing12Months", "N/A")
+            "P/E Trailing": str(info.get("trailingPE", "No disponible")),
+            "P/E Forward": str(info.get("forwardPE", "No disponible")),
+            "PEG Ratio": str(info.get("pegRatio", "No disponible")),
+            "Price/Book": str(info.get("priceToBook", "No disponible")),
+            "Price/Sales": str(info.get("priceToSalesTrailing12Months", "No disponible"))
         }
     else:
         datos["estado"] = "error"
@@ -262,12 +263,19 @@ def modulo_2_crecimiento_ingresos():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
+        
+        revenue_growth = info.get("revenueGrowth", None)
+        earnings_growth = info.get("earningsGrowth", None)
+        revenue_estimate = info.get("revenueEstimate", None)
+        earnings_estimate = info.get("earningsEstimate", None)
+        earnings_surprise = info.get("earningsSurprise", None)
+        
         datos["valores"] = {
-            "Crecimiento Ingresos": f"{info.get('revenueGrowth', 0) * 100:.2f}%",
-            "Crecimiento Ganancias": f"{info.get('earningsGrowth', 0) * 100:.2f}%",
-            "Revenue Estimate": f"${info.get('revenueEstimate', 0):.2f}B",
-            "Earnings Estimate": f"${info.get('earningsEstimate', 0):.2f}",
-            "Surprise %": f"{info.get('earningsSurprise', 0) * 100:.2f}%"
+            "Crecimiento Ingresos": str(revenue_growth * 100) + "%" if revenue_growth else "No disponible",
+            "Crecimiento Ganancias": str(earnings_growth * 100) + "%" if earnings_growth else "No disponible",
+            "Revenue Estimate": "$" + str(revenue_estimate) + "B" if revenue_estimate else "No disponible",
+            "Earnings Estimate": "$" + str(earnings_estimate) if earnings_estimate else "No disponible",
+            "Surprise %": str(earnings_surprise * 100) + "%" if earnings_surprise else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -282,13 +290,21 @@ def modulo_3_capex_bigtech():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
-        capex = info.get("capitalExpenditures", 0)
+        
+        capex = info.get("capitalExpenditures", None)
+        total_revenue = info.get("totalRevenue", None)
+        investments = info.get("investments", None)
+        operating_cashflow = info.get("operatingCashflow", None)
+        free_cashflow = info.get("freeCashflow", None)
+        
+        capex_revenue = str(abs(capex) / total_revenue * 100) + "%" if capex and total_revenue else "No disponible"
+        
         datos["valores"] = {
-            "CapEx Total": f"${capex/1e9:.2f}B",
-            "CapEx/Ingresos": f"{abs(capex)/info.get('totalRevenue', 1) * 100:.2f}%",
-            "Flujo de Inversión": f"${info.get('investments', 0)/1e9:.2f}B",
-            "Cash Flow Op.": f"${info.get('operatingCashflow', 0)/1e9:.2f}B",
-            "Free Cash Flow": f"${info.get('freeCashflow', 0)/1e9:.2f}B"
+            "CapEx Total": "$" + str(capex / 1e9) + "B" if capex else "No disponible",
+            "CapEx/Ingresos": capex_revenue,
+            "Flujo de Inversión": "$" + str(investments / 1e9) + "B" if investments else "No disponible",
+            "Cash Flow Op.": "$" + str(operating_cashflow / 1e9) + "B" if operating_cashflow else "No disponible",
+            "Free Cash Flow": "$" + str(free_cashflow / 1e9) + "B" if free_cashflow else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -303,12 +319,19 @@ def modulo_4_concentracion_mercado():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
+        
+        market_cap = info.get("marketCap", None)
+        float_shares = info.get("floatShares", None)
+        held_percent_institutions = info.get("heldPercentInstitutions", None)
+        held_percent_insiders = info.get("heldPercentInsiders", None)
+        short_ratio = info.get("shortRatio", None)
+        
         datos["valores"] = {
-            "Market Cap": f"${info.get('marketCap', 0)/1e12:.2f}T",
-            "Share Float": f"{info.get('floatShares', 0)/1e9:.2f}B",
-            "% Held by Inst.": f"{info.get('heldPercentInstitutions', 0) * 100:.2f}%",
-            "% Held by Insiders": f"{info.get('heldPercentInsiders', 0) * 100:.2f}%",
-            "Short Ratio": f"{info.get('shortRatio', 0):.2f}"
+            "Market Cap": "$" + str(market_cap / 1e12) + "T" if market_cap else "No disponible",
+            "Share Float": str(float_shares / 1e9) + "B" if float_shares else "No disponible",
+            "% Held by Inst.": str(held_percent_institutions * 100) + "%" if held_percent_institutions else "No disponible",
+            "% Held by Insiders": str(held_percent_insiders * 100) + "%" if held_percent_insiders else "No disponible",
+            "Short Ratio": str(short_ratio) if short_ratio else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -323,12 +346,19 @@ def modulo_5_margen_beneficio():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
+        
+        operating_margins = info.get("operatingMargins", None)
+        profit_margins = info.get("profitMargins", None)
+        gross_margins = info.get("grossMargins", None)
+        return_on_equity = info.get("returnOnEquity", None)
+        return_on_assets = info.get("returnOnAssets", None)
+        
         datos["valores"] = {
-            "Margen Operativo": f"{info.get('operatingMargins', 0) * 100:.2f}%",
-            "Margen Beneficio": f"{info.get('profitMargins', 0) * 100:.2f}%",
-            "Margen Bruto": f"{info.get('grossMargins', 0) * 100:.2f}%",
-            "ROE": f"{info.get('returnOnEquity', 0) * 100:.2f}%",
-            "ROA": f"{info.get('returnOnAssets', 0) * 100:.2f}%"
+            "Margen Operativo": str(operating_margins * 100) + "%" if operating_margins else "No disponible",
+            "Margen Beneficio": str(profit_margins * 100) + "%" if profit_margins else "No disponible",
+            "Margen Bruto": str(gross_margins * 100) + "%" if gross_margins else "No disponible",
+            "ROE": str(return_on_equity * 100) + "%" if return_on_equity else "No disponible",
+            "ROA": str(return_on_assets * 100) + "%" if return_on_assets else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -343,12 +373,20 @@ def modulo_6_endeudamiento():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
+        
+        total_debt = info.get("totalDebt", None)
+        debt_to_equity = info.get("debtToEquity", None)
+        total_cash = info.get("totalCash", None)
+        interest_coverage = info.get("interestCoverage", None)
+        
+        net_debt = (total_debt - total_cash) / 1e9 if total_debt and total_cash else None
+        
         datos["valores"] = {
-            "Deuda Total": f"${info.get('totalDebt', 0)/1e9:.2f}B",
-            "Deuda/Equity": f"{info.get('debtToEquity', 0):.2f}",
-            "Cash": f"${info.get('totalCash', 0)/1e9:.2f}B",
-            "Deuda Neta": f"${(info.get('totalDebt', 0) - info.get('totalCash', 0))/1e9:.2f}B",
-            "Interest Coverage": f"{info.get('interestCoverage', 0):.2f}"
+            "Deuda Total": "$" + str(total_debt / 1e9) + "B" if total_debt else "No disponible",
+            "Deuda/Equity": str(debt_to_equity) if debt_to_equity else "No disponible",
+            "Cash": "$" + str(total_cash / 1e9) + "B" if total_cash else "No disponible",
+            "Deuda Neta": "$" + str(net_debt) + "B" if net_debt else "No disponible",
+            "Interest Coverage": str(interest_coverage) if interest_coverage else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -365,18 +403,24 @@ def modulo_7_volatilidad():
         hist = resultado["hist"]
         datos["estado"] = "ok"
         
+        beta = info.get("beta", None)
+        fifty_two_week_high = info.get("fiftyTwoWeekHigh", None)
+        fifty_two_week_low = info.get("fiftyTwoWeekLow", None)
+        average_volume = info.get("averageVolume", None)
+        
+        volatilidad_historica = "No disponible"
         if len(hist) > 0:
             returns = hist['Close'].pct_change().dropna()
-            volatilidad_historica = returns.std() * (252 ** 0.5) * 100
-        else:
-            volatilidad_historica = 0
+            vol = returns.std() * (252 ** 0.5) * 100
+            if vol:
+                volatilidad_historica = str(vol) + "%"
         
         datos["valores"] = {
-            "Beta": f"{info.get('beta', 0):.2f}",
-            "Volatilidad Hist.": f"{volatilidad_historica:.2f}%",
-            "52W High": f"${info.get('fiftyTwoWeekHigh', 0):.2f}",
-            "52W Low": f"${info.get('fiftyTwoWeekLow', 0):.2f}",
-            "Avg Volume": f"{info.get('averageVolume', 0)/1e6:.2f}M"
+            "Beta": str(beta) if beta else "No disponible",
+            "Volatilidad Hist.": volatilidad_historica,
+            "52W High": "$" + str(fifty_two_week_high) if fifty_two_week_high else "No disponible",
+            "52W Low": "$" + str(fifty_two_week_low) if fifty_two_week_low else "No disponible",
+            "Avg Volume": str(average_volume / 1e6) + "M" if average_volume else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -391,16 +435,21 @@ def modulo_8_fcf_yield():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
-        fcf = info.get("freeCashflow", 0)
-        market_cap = info.get("marketCap", 1)
-        fcf_yield = (fcf / market_cap) * 100 if market_cap > 0 else 0
+        
+        fcf = info.get("freeCashflow", None)
+        market_cap = info.get("marketCap", None)
+        dividend_yield = info.get("dividendYield", None)
+        payout_ratio = info.get("payoutRatio", None)
+        dividend_rate = info.get("dividendRate", None)
+        
+        fcf_yield = str(fcf / market_cap * 100) + "%" if fcf and market_cap else "No disponible"
         
         datos["valores"] = {
-            "FCF": f"${fcf/1e9:.2f}B",
-            "FCF Yield": f"{fcf_yield:.2f}%",
-            "Dividend Yield": f"{info.get('dividendYield', 0) * 100:.2f}%",
-            "Payout Ratio": f"{info.get('payoutRatio', 0) * 100:.2f}%",
-            "Div Rate": f"${info.get('dividendRate', 0):.2f}"
+            "FCF": "$" + str(fcf / 1e9) + "B" if fcf else "No disponible",
+            "FCF Yield": fcf_yield,
+            "Dividend Yield": str(dividend_yield * 100) + "%" if dividend_yield else "No disponible",
+            "Payout Ratio": str(payout_ratio * 100) + "%" if payout_ratio else "No disponible",
+            "Div Rate": "$" + str(dividend_rate) if dividend_rate else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -415,12 +464,19 @@ def modulo_9_insiders_selling():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
+        
+        held_percent_insiders = info.get("heldPercentInsiders", None)
+        held_percent_institutions = info.get("heldPercentInstitutions", None)
+        short_ratio = info.get("shortRatio", None)
+        short_percent_of_float = info.get("shortPercentOfFloat", None)
+        short_shares = info.get("shortShares", None)
+        
         datos["valores"] = {
-            "% Held by Insiders": f"{info.get('heldPercentInsiders', 0) * 100:.2f}%",
-            "% Held by Inst.": f"{info.get('heldPercentInstitutions', 0) * 100:.2f}%",
-            "Short Ratio": f"{info.get('shortRatio', 0):.2f}",
-            "Short % Float": f"{info.get('shortPercentOfFloat', 0) * 100:.2f}%",
-            "Shares Short": f"{info.get('shortShares', 0)/1e6:.2f}M"
+            "% Held by Insiders": str(held_percent_insiders * 100) + "%" if held_percent_insiders else "No disponible",
+            "% Held by Inst.": str(held_percent_institutions * 100) + "%" if held_percent_institutions else "No disponible",
+            "Short Ratio": str(short_ratio) if short_ratio else "No disponible",
+            "Short % Float": str(short_percent_of_float * 100) + "%" if short_percent_of_float else "No disponible",
+            "Shares Short": str(short_shares / 1e6) + "M" if short_shares else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -435,16 +491,21 @@ def modulo_10_rd_gasto():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
-        rd = info.get("researchAndDevelopment", 0)
-        revenue = info.get("totalRevenue", 1)
-        rd_percentage = (rd / revenue) * 100 if revenue > 0 else 0
+        
+        rd = info.get("researchAndDevelopment", None)
+        total_revenue = info.get("totalRevenue", None)
+        sga_expenses = info.get("sgaExpenses", None)
+        
+        rd_percentage = str(rd / total_revenue * 100) + "%" if rd and total_revenue else "No disponible"
+        sga_percentage = str(sga_expenses / total_revenue * 100) + "%" if sga_expenses and total_revenue else "No disponible"
+        opex_total = (rd + sga_expenses) / 1e9 if rd and sga_expenses else None
         
         datos["valores"] = {
-            "Gasto R&D": f"${rd/1e9:.2f}B",
-            "R&D % Ingresos": f"{rd_percentage:.2f}%",
-            "SGA % Ingresos": f"{info.get('sgaExpenses', 0)/revenue * 100:.2f}%",
-            "OpEx Total": f"${(rd + info.get('sgaExpenses', 0))/1e9:.2f}B",
-            "Ingresos Totales": f"${revenue/1e9:.2f}B"
+            "Gasto R&D": "$" + str(rd / 1e9) + "B" if rd else "No disponible",
+            "R&D % Ingresos": rd_percentage,
+            "SGA % Ingresos": sga_percentage,
+            "OpEx Total": "$" + str(opex_total) + "B" if opex_total else "No disponible",
+            "Ingresos Totales": "$" + str(total_revenue / 1e9) + "B" if total_revenue else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -459,12 +520,19 @@ def modulo_11_primas_riesgo():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
+        
+        implied_volatility = info.get("impliedVolatility", None)
+        put_to_call_ratio = info.get("putToCallRatio", None)
+        open_interest = info.get("openInterest", None)
+        fifty_two_week_high = info.get("fiftyTwoWeekHigh", None)
+        fifty_two_week_low = info.get("fiftyTwoWeekLow", None)
+        
         datos["valores"] = {
-            "Implied Volatility": f"{info.get('impliedVolatility', 0) * 100:.2f}%",
-            "Put/Call Ratio": f"{info.get('putToCallRatio', 0):.2f}",
-            "Open Interest": f"{info.get('openInterest', 0)/1e6:.2f}M",
-            "52W High": f"${info.get('fiftyTwoWeekHigh', 0):.2f}",
-            "52W Low": f"${info.get('fiftyTwoWeekLow', 0):.2f}"
+            "Implied Volatility": str(implied_volatility * 100) + "%" if implied_volatility else "No disponible",
+            "Put/Call Ratio": str(put_to_call_ratio) if put_to_call_ratio else "No disponible",
+            "Open Interest": str(open_interest / 1e6) + "M" if open_interest else "No disponible",
+            "52W High": "$" + str(fifty_two_week_high) if fifty_two_week_high else "No disponible",
+            "52W Low": "$" + str(fifty_two_week_low) if fifty_two_week_low else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -479,16 +547,23 @@ def modulo_12_apalancamiento():
     if resultado["status"] == "ok":
         info = resultado["info"]
         datos["estado"] = "ok"
-        total_assets = info.get("totalAssets", 1)
-        total_equity = info.get("totalEquity", 1)
-        apalancamiento = total_assets / total_equity if total_equity > 0 else 0
+        
+        total_assets = info.get("totalAssets", None)
+        total_equity = info.get("totalEquity", None)
+        debt_to_equity = info.get("debtToEquity", None)
+        return_on_equity = info.get("returnOnEquity", None)
+        return_on_assets = info.get("returnOnAssets", None)
+        
+        apalancamiento = str(total_assets / total_equity) + "x" if total_assets and total_equity else "No disponible"
+        equity_multiplier = str(total_assets / total_equity) + "x" if total_assets and total_equity else "No disponible"
+        debt_assets = str(debt_to_equity / (1 + debt_to_equity) * 100) + "%" if debt_to_equity else "No disponible"
         
         datos["valores"] = {
-            "Multiplicador Apalanc.": f"{apalancamiento:.2f}x",
-            "Deuda/Assets": f"{info.get('debtToEquity', 0) / (1 + info.get('debtToEquity', 0)) * 100:.2f}%",
-            "Equity Multiplier": f"{total_assets / total_equity:.2f}x",
-            "ROE": f"{info.get('returnOnEquity', 0) * 100:.2f}%",
-            "ROA": f"{info.get('returnOnAssets', 0) * 100:.2f}%"
+            "Multiplicador Apalanc.": apalancamiento,
+            "Deuda/Assets": debt_assets,
+            "Equity Multiplier": equity_multiplier,
+            "ROE": str(return_on_equity * 100) + "%" if return_on_equity else "No disponible",
+            "ROA": str(return_on_assets * 100) + "%" if return_on_assets else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -504,17 +579,20 @@ def modulo_13_sentimiento():
         info = resultado["info"]
         datos["estado"] = "ok"
         
-        recomendacion = info.get("recommendationKey", "N/A")
-        target_price = info.get("targetHighPrice", 0)
-        current_price = info.get("currentPrice", 1)
-        upside = ((target_price / current_price) - 1) * 100 if current_price > 0 else 0
+        recommendation_key = info.get("recommendationKey", None)
+        target_high_price = info.get("targetHighPrice", None)
+        current_price = info.get("currentPrice", None)
+        number_of_analyst_opinions = info.get("numberOfAnalystOpinions", None)
+        average_analyst_rating = info.get("averageAnalystRating", None)
+        
+        upside = str((target_high_price / current_price - 1) * 100) + "%" if target_high_price and current_price else "No disponible"
         
         datos["valores"] = {
-            "Recomendación": recomendacion,
-            "Target Price": f"${info.get('targetMeanPrice', 0):.2f}",
-            "Upside Potencial": f"{upside:.2f}%",
-            "# Analistas": f"{info.get('numberOfAnalystOpinions', 0)}",
-            "Consensus Score": f"{info.get('averageAnalystRating', 0):.2f}"
+            "Recomendación": str(recommendation_key) if recommendation_key else "No disponible",
+            "Target Price": "$" + str(target_high_price) if target_high_price else "No disponible",
+            "Upside Potencial": upside,
+            "# Analistas": str(number_of_analyst_opinions) if number_of_analyst_opinions else "No disponible",
+            "Consensus Score": str(average_analyst_rating) if average_analyst_rating else "No disponible"
         }
     else:
         datos["estado"] = "error"
@@ -640,3 +718,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
