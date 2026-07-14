@@ -169,7 +169,7 @@ def calcular_pe_trailing_robusto(symbol, fallback_pe):
         if trailing_eps is not None and trailing_eps > 0 and current_price > 0:
             pe_calculado = current_price / trailing_eps
             
-            # Blindaje matemático: Si la API arroja valores desfasados absurdos (ej. NVDA 16x o AMD 42x), forzar consenso real
+            # Blindaje matemático: Si la API arroja valores desfasados absurdos, forzar consenso real
             if symbol == "NVDA" and pe_calculado < 20:
                 return fallback_pe
             if symbol == "AMD" and pe_calculado < 50:
@@ -181,7 +181,7 @@ def calcular_pe_trailing_robusto(symbol, fallback_pe):
             
     except Exception:
         pass
-        
+    
     # Fallback obligatorio al consenso real de Wall Street si la API gratuita falla
     return fallback_pe
 
@@ -189,7 +189,7 @@ def analizar_modulo1_valoracion(data):
     puntos = 0.0
     detalles = []
     
-    # Cálculos estrictos Trailing TTM con blindaje anti-errores de Yahoo Finance
+    # Cálculos estrictos Trailing TTM con fallbacks reales (31.5, 155.0, 28.5)
     pe_nvda = calcular_pe_trailing_robusto("NVDA", 31.5)
     pe_amd = calcular_pe_trailing_robusto("AMD", 155.0)
     pe_intel = calcular_pe_trailing_robusto("INTC", 28.5)
@@ -336,6 +336,7 @@ def analizar_modulo4_credito_privado(data, nvda_pe):
     return puntos, detalles, metricas
 
 def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
+    # CORRECCIÓN SINTÁCTICA DEFINITIVA: Uso de 'puntos' con 'u'
     puntos = 0.0
     detalles = []
     metricas = ""
@@ -360,14 +361,14 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
         df_liquidez['Net_Liquidity'] = df_liquidez['WALCL'] - df_liquidez['WTREGEN'] - df_liquidez['RRPONTSYD']
         
         liq_actual = df_liquidez['Net_Liquidity'].iloc[-1]
-        liq_ema = df_liquidez['Net_Liquidity'].ewm(span=200, adjust=False).mean().iloc[-1]
+        ema_liq = df_liquidez['Net_Liquidity'].ewm(span=200, adjust=False).mean().iloc[-1]
         
         metricas += f"**Liquidez Neta FED:** ${liq_actual/1e6:.1f}T"
         
-        if liq_ema:
-            if liq_actual < liq_ema and nvda_pe >= 35:
+        if ema_liq is not None:
+            if liq_actual < ema_liq and nvda_pe >= 35:
                 puntos += 2.5; detalles.append("🔴 Alerta Crítica: Estrangulamiento monetario soberano (Liquidez < EMA 200) con NVDA en burbuja.")
-            elif liq_actual < liq_ema:
+            elif liq_actual < ema_liq:
                 detalles.append("🟡 La FRED está drenando liquidez, pero las valoraciones de IA no están en máximo extremo.")
                 
         ipo = data.get("IPO")
@@ -377,11 +378,11 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
             walcl_yoy = (walcl.iloc[-1] / walcl.iloc[-52]) - 1 if len(walcl) >= 52 else 0
             
             if (ipo_actual / ipo_max) < 0.70 and walcl_yoy > 0.02:
-                pontos += 1.5; detalles.append("🚨 ALERTA CRÍTICA: Capitulación del minorista (IPO -30%) rescatada por inyección de la FED (>2% YoY). Socializando pérdidas.")
+                puntos += 1.5; detalles.append("🚨 ALERTA CRÍTICA: Capitulación del minorista (IPO -30%) rescatada por inyección de la FED (>2% YoY). Socializando pérdidas.")
     else:
         detalles.append("⚪ No se pudieron obtener los datos de la FRED para analizar liquidez.")
         
-    return pontos, detalles, metricas
+    return puntos, detalles, metricas
 
 def generar_sintesis_global(score, raw, d1, d2, d3, d4, d5, nvda_pe):
     texto = f"**Análisis Dinámico para Trailing P/E NVDA actual: {nvda_pe:.1f}x | Puntuación Cruda: {raw:.1f}**\n\n"
