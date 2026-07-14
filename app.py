@@ -221,9 +221,9 @@ def analizar_modulo2_ciclo_fisico(data, nvda_pe):
     detalles = []
     metricas = ""
     
-    # EXTRACCIÓN HISTÓRICA INFALIBLE DIRECTAMENTE DESDE LA SERIE DE 1 AÑO
+    # EXTRACCIÓN HISTÓRICA INFALIBLE DIRECTAMENTE DESDE LA SERIE DE 3 AÑOS
     try:
-        mu_df = yf.Ticker("MU").history(period="1y").dropna()
+        mu_df = yf.Ticker("MU").history(period="3y").dropna()
         if not mu_df.empty and len(mu_df) >= 200:
             precio_actual_mu = mu_df['Close'].iloc[-1]
             ema_200_mu = mu_df['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
@@ -239,10 +239,10 @@ def analizar_modulo2_ciclo_fisico(data, nvda_pe):
         else:
             detalles.append("⚪ Datos históricos insuficientes para calcular EMA 200 de Micron (MU).")
     except Exception:
-        detalles.append("⚪ Error crítico al descargar el histórico limpio de 1 año de Micron (MU).")
+        detalles.append("⚪ Error crítico al descargar el histórico limpio de 3 años de Micron (MU).")
 
     try:
-        kospi_df = yf.Ticker("^KS11").history(period="1y").dropna()
+        kospi_df = yf.Ticker("^KS11").history(period="3y").dropna()
         if not kospi_df.empty and len(kospi_df) >= 200:
             precio_actual_kospi = kospi_df['Close'].iloc[-1]
             ema_200_kospi = kospi_df['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
@@ -254,7 +254,7 @@ def analizar_modulo2_ciclo_fisico(data, nvda_pe):
         else:
             detalles.append("⚪ Datos históricos insuficientes para calcular EMA 200 del KOSPI.")
     except Exception:
-        detalles.append("⚪ Error crítico al descargar el histórico limpio de 1 año del KOSPI.")
+        detalles.append("⚪ Error crítico al descargar el histórico limpio de 3 años del KOSPI.")
         
     return puntos, detalles, metricas
 
