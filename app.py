@@ -3,7 +3,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import pandas_datareader.data as web
-from datetime import datetime, timedelta
+import os
+from datetime import datetime, timedelta, date
+from git import Repo
 
 # Configuración de la página
 st.set_page_config(
@@ -13,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 1. DISEÑO VISUAL ULTRA-CONTRASTE (FONDO 100% NEGRO)
+# DISEÑO VISUAL ULTRA-CONTRASTE (FONDO 100% NEGRO)
 st.markdown(
     """
     <style>
@@ -66,7 +68,7 @@ st.markdown(
 )
 
 # ==========================================
-# FUNCIONES AUXILIARES DE EXTRACTION Y RENDERIZADO
+# FUNCIONES AUXILIARES DE EXTRACTION Y PERSISTENCIA
 # ==========================================
 
 def render_detail(detail):
@@ -115,10 +117,11 @@ def get_fred_data(series_ids):
     return data
 
 def calculate_ema(df, column='Close', window=200):
-    """Calcula la EMA localmente. Si falla, devuelve None."""
+    """Calcula la EMA localmente con dropna para evitar desfases por días sin mercado."""
     try:
-        if len(df) >= window:
-            return df[column].ewm(span=window, adjust=False).mean().iloc[-1]
+        series = df[column].dropna()
+        if len(series) >= window:
+            return series.ewm(span=window, adjust=False).mean().iloc[-1]
         return None
     except:
         return None
@@ -129,6 +132,43 @@ def safe_get(dictionary, key, default=0.0):
     if val is None: return default
     return val
 
+def get_forward_pe(info, fallback_pe):
+    """Calcula el Forward P/E real evitando errores fiscales de la API de Yahoo."""
+    try:
+        price = info.get("currentPrice")
+        fwd_eps = info.get("forwardEps")
+        if price is not None and fwd_eps is not None and fwd_eps > 0 and price > 0:
+            return price / fwd_eps
+    except:
+        pass
+    return fallback_pe
+
+def guardar_y_sincronizar_score(score_actual):
+    """Gestiona el CSV local y sincroniza con GitHub para persistencia histórica."""
+    archivo_csv = "historial_riesgo.csv"
+    hoy = str(date.today())
+    
+    if os.path.exists(archivo_csv):
+        df_hist = pd.read_csv(archivo_csv)
+    else:
+        df_hist = pd.DataFrame(columns=["Fecha", "Score_Riesgo"])
+    
+    if hoy not in df_hist["Fecha"].values:
+        nuevo_registro = pd.DataFrame([{"Fecha": hoy, "Score_Riesgo": score_actual}])
+        df_hist = pd.concat([df_hist, nuevo_registro], ignore_index=True)
+        df_hist.to_csv(archivo_csv, index=False)
+        
+        try:
+            repo = Repo(os.getcwd())
+            repo.git.add(archivo_csv)
+            repo.index.commit(f"Update historial riesgo: {hoy}")
+            origin = repo.remote(name='origin')
+            origin.push()
+        except Exception as e:
+            st.sidebar.error(f"Error al sincronizar con GitHub: {e}")
+            
+    return df_hist
+
 # ==========================================
 # LÓGICA DE LOS MÓDULOS
 # ==========================================
@@ -136,8 +176,10 @@ def safe_get(dictionary, key, default=0.0):
 def analizar_modulo1_valoracion(data):
     puntos = 0.0
     detalles = []
-    nvda_pe = safe_get(data.get("NVDA", {}).get("info", {}), "forwardPE", 35.0)
-    amd_pe = safe_get(data.get("AMD", {}).get("info", {}), "forwardPE", 35.0)
+    
+    # Cálculo homogéneo con Forward P/E real y fallbacks institucionales
+    nvda_pe = get_forward_pe(data.get("NVDA", {}).get("info", {}), 23.5)
+    amd_pe = get_forward_pe(data.get("AMD", {}).get("info", {}), 45.0)
     
     if nvda_pe < 25: puntos += 0.0; detalles.append("🟢 NVDA P/E < 25x: Suelo conservador.")
     elif 25 <= nvda_pe < 30: puntos += 0.5; detalles.append("🟢 NVDA P/E 25-30x: Zona de confort.")
@@ -190,7 +232,6 @@ def analizar_modulo2_ciclo_fisico(data, nvda_pe):
         
     return puntos, detalles, metricas
 
-# 2. REESTRUCTURACIÓN DEL MÓDULO 3: CÁLCULO REAL DE ROIC
 def analizar_modulo3_motor_corporativo(data, nvda_pe):
     puntos = 0.0
     detalles = []
@@ -203,14 +244,12 @@ def analizar_modulo3_motor_corporativo(data, nvda_pe):
             financials = t.financials
             balance = t.balance_sheet
             
-            # 1. Calcular NOPAT (Net Operating Profit After Tax)
             ebit = financials.loc['Operating Income'].iloc[0]
             tax_provision = financials.loc['Tax Provision'].iloc[0]
             pretax_income = financials.loc['Pretax Income'].iloc[0]
             effective_tax_rate = max(0.0, min(tax_provision / pretax_income, 0.4)) if pretax_income > 0 else 0.21
             nopat = ebit * (1 - effective_tax_rate)
             
-            # 2. Calcular Capital Invertido = Patrimonio + Deuda - Caja
             equity = balance.loc['Stockholders Equity'].iloc[0]
             st_debt = balance.loc['Current Debt'].iloc[0] if 'Current Debt' in balance.index else 0
             lt_debt = balance.loc['Long Term Debt'].iloc[0] if 'Long Term Debt' in balance.index else 0
@@ -219,11 +258,9 @@ def analizar_modulo3_motor_corporativo(data, nvda_pe):
             cash = balance.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in balance.index else 0
             invested_capital = equity + total_debt - cash
             
-            # 3. Calcular ROIC Final
             roic = nopat / invested_capital if invested_capital > 0 else 0
             roics.append(roic)
         except Exception:
-            # En caso de error de la API, usar un proxy histórico seguro para no romper Streamlit
             roic = 0.22 
             roics.append(roic)
         
@@ -369,7 +406,7 @@ def main():
     data_yf = get_yfinance_data(tickers_yf)
     data_fred = get_fred_data(series_fred)
     
-    nvda_pe = safe_get(data_yf.get("NVDA", {}).get("info", {}), "forwardPE", 35.0)
+    nvda_pe = get_forward_pe(data_yf.get("NVDA", {}).get("info", {}), 23.5)
     
     # Ejecutar análisis
     p1, d1, m1 = analizar_modulo1_valoracion(data_yf)
@@ -380,6 +417,9 @@ def main():
     
     raw_score = p1 + p2 + p3 + p4 + p5
     final_score = max(0.0, min(10.0, raw_score))
+    
+    # --- PERSISTENCIA HISTÓRICA ---
+    df_historial = guardar_y_sincronizar_score(round(final_score, 2))
     
     # --- CABECERA DE INDICADOR GENERAL ---
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -451,6 +491,15 @@ def main():
         st.info("💡 **Lógica Termodinámica de Liquidez:** Las startups operan como agujeros negros que destruyen el efectivo del sistema. El ETF SPCX (SpaceX proxy) a $80 representa su valor industrial real; cualquier precio por encima es inflación especulativa pura. A nivel macro, la única forma de que una burbuja de esta magnitud no colapse es mediante la inyección de Liquidez Neta de la Reserva Federal (Balance Total - Tesoro - Repos). Si el minorista capitula (IPO -30%) y la FED inyecta dinero de emergencia (>2% expansión), estás presenciando la socialización de las pérdidas de los fondos de venture capital.")
         for d in d5: render_detail(d)
         st.metric("Puntos acumulados", f"{p5:.1f}")
+
+    # --- GRÁFICO HISTÓRICO EN LA INTERFAZ ---
+    st.markdown("---")
+    st.subheader("📈 Evolución Histórica del Índice de Riesgo")
+    if not df_historial.empty:
+        st.line_chart(df_historial.set_index('Fecha'))
+        st.caption("Registro diario almacenado de forma persistente mediante Git.")
+    else:
+        st.info("El historial se construirá y guardará automáticamente a partir de la ejecución de hoy.")
 
 if __name__ == "__main__":
     main()
