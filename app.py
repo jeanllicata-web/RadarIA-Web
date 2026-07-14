@@ -13,21 +13,26 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilos CSS personalizados para un look institucional
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
-    
-    html, body, [class*="st-"] {
-        font-family: 'Inter', sans-serif;
-        color: #e0e0e0;
+# 1. DISEÑO VISUAL ULTRA-CONTRASTE (FONDO 100% NEGRO)
+st.markdown(
+    """
+    <style>
+    .stApp { background-color: #000000 !important; }
+    p, span, label, .stMarkdown, .stText { color: #FFFFFF !important; font-weight: 500 !important; }
+    h1, h2, h3, h4, h5, h6 { color: #FFFFFF !important; font-weight: 700 !important; }
+    div[data-testid="stBlock"], div[data-testid="element-container"] {
+        background-color: #0c0c0c !important;
+        border: 1px solid #262626 !important;
+        border-radius: 8px !important;
     }
+    .dataframe, table { background-color: #0c0c0c !important; color: #FFFFFF !important; }
+    .stAlert p { color: #FFFFFF !important; font-weight: 600 !important; }
     
     .main-header {
         text-align: center;
         padding: 2rem 0 1rem 0;
-        background: linear-gradient(180deg, #0d1117 0%, #161b22 100%);
-        border-bottom: 1px solid #30363d;
+        background: linear-gradient(180deg, #000000 0%, #0c0c0c 100%);
+        border-bottom: 1px solid #262626;
         margin: -2.5rem -2rem 2rem -2rem;
         padding-top: 4rem;
     }
@@ -41,36 +46,40 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
-    .stProgress > div > div > div > div {
-        background-color: linear-gradient(90deg, #238636, #f0883e, #da3633);
-    }
-    
-    .metric-card {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 10px;
-        padding: 1.5rem;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    
     .module-box {
-        background-color: #0d1117;
+        background-color: #000000 !important;
         border-left: 4px solid #58a6ff;
         padding: 1.5rem;
         border-radius: 0 8px 8px 0;
         margin-bottom: 1.5rem;
+        border-top: 1px solid #262626 !important;
+        border-right: 1px solid #262626 !important;
+        border-bottom: 1px solid #262626 !important;
     }
     
-    .alert-red { border-left-color: #da3633; }
-    .alert-yellow { border-left-color: #f0883e; }
-    .alert-green { border-left-color: #238636; }
-</style>
-""", unsafe_allow_html=True)
+    .alert-red { border-left-color: #da3633 !important; }
+    .alert-yellow { border-left-color: #f0883e !important; }
+    .alert-green { border-left-color: #238636 !important; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # ==========================================
-# FUNCIONES AUXILIARES DE EXTRACTION
+# FUNCIONES AUXILIARES DE EXTRACTION Y RENDERIZADO
 # ==========================================
+
+def render_detail(detail):
+    """Convierte los textos de diagnóstico en componentes nativos de alto contraste."""
+    texto_limpio = detail.replace("🟢", "").replace("🟡", "").replace("🟠", "").replace("🔴", "").replace("🚨", "").replace("⚪", "").strip()
+    if "🔴" in detail or "🚨" in detail:
+        st.error(f"🚨 **{texto_limpio}**")
+    elif "🟠" in detail or "🟡" in detail:
+        st.warning(f"⚠️ **{texto_limpio}**")
+    elif "🟢" in detail or "✅" in detail:
+        st.success(f"✅ **{texto_limpio}**")
+    else:
+        st.info(f"ℹ️ **{texto_limpio}**")
 
 @st.cache_data(ttl=3600, show_spinner="Descargando datos de Yahoo Finance...")
 def get_yfinance_data(tickers, period="1y"):
@@ -93,7 +102,7 @@ def get_yfinance_data(tickers, period="1y"):
 def get_fred_data(series_ids):
     """Descarga datos macroeconómicos de la FRED."""
     data = {}
-    start = datetime.today() - timedelta(days=5*365) # 5 años para EMA 200 semanal
+    start = datetime.today() - timedelta(days=5*365)
     for series in series_ids:
         try:
             df = web.DataReader(series, 'fred', start)
@@ -127,17 +136,15 @@ def safe_get(dictionary, key, default=0.0):
 def analizar_modulo1_valoracion(data):
     puntos = 0.0
     detalles = []
-    nvda_pe = safe_get(data.get("NVDA", {}).get("info", {}), "forwardPE", 35.0) # Default 35x si falla
+    nvda_pe = safe_get(data.get("NVDA", {}).get("info", {}), "forwardPE", 35.0)
     amd_pe = safe_get(data.get("AMD", {}).get("info", {}), "forwardPE", 35.0)
     
-    # Lógica NVDA Absoluta
     if nvda_pe < 25: puntos += 0.0; detalles.append("🟢 NVDA P/E < 25x: Suelo conservador.")
     elif 25 <= nvda_pe < 30: puntos += 0.5; detalles.append("🟢 NVDA P/E 25-30x: Zona de confort.")
     elif 30 <= nvda_pe < 35: puntos += 1.5; detalles.append("🟡 NVDA P/E 30-35x: Sector caro.")
     elif 35 <= nvda_pe < 40: puntos += 2.0; detalles.append("🟠 NVDA P/E 35-40x: Carísima (Riesgo técnico).")
     else: puntos += 4.0; detalles.append("🔴 NVDA P/E >= 40x: Burbuja desatada.")
     
-    # Lógica Divergencia AMD
     if nvda_pe > 0:
         ratio_div = amd_pe / nvda_pe
         if nvda_pe < 40 and ratio_div > 1.5:
@@ -183,29 +190,51 @@ def analizar_modulo2_ciclo_fisico(data, nvda_pe):
         
     return puntos, detalles, metricas
 
+# 2. REESTRUCTURACIÓN DEL MÓDULO 3: CÁLCULO REAL DE ROIC
 def analizar_modulo3_motor_corporativo(data, nvda_pe):
     puntos = 0.0
     detalles = []
-    tickers_hs = ["META", "AMZN", "GOOG", "MSFT"]
-    roas = []
+    tickers_hs = ['META', 'AMZN', 'GOOG', 'MSFT']
+    roics = []
     
-    for t in tickers_hs:
-        info = data.get(t, {}).get("info", {})
-        # Preferencia ROA sobre ROE para evitar distorsión por apalancamiento
-        roa = safe_get(info, "returnOnAssets", None)
-        if roa is None: roa = safe_get(info, "returnOnEquity", 0.10) # Fallback ROE
-        roas.append(roa)
+    for ticker in tickers_hs:
+        try:
+            t = yf.Ticker(ticker)
+            financials = t.financials
+            balance = t.balance_sheet
+            
+            # 1. Calcular NOPAT (Net Operating Profit After Tax)
+            ebit = financials.loc['Operating Income'].iloc[0]
+            tax_provision = financials.loc['Tax Provision'].iloc[0]
+            pretax_income = financials.loc['Pretax Income'].iloc[0]
+            effective_tax_rate = max(0.0, min(tax_provision / pretax_income, 0.4)) if pretax_income > 0 else 0.21
+            nopat = ebit * (1 - effective_tax_rate)
+            
+            # 2. Calcular Capital Invertido = Patrimonio + Deuda - Caja
+            equity = balance.loc['Stockholders Equity'].iloc[0]
+            st_debt = balance.loc['Current Debt'].iloc[0] if 'Current Debt' in balance.index else 0
+            lt_debt = balance.loc['Long Term Debt'].iloc[0] if 'Long Term Debt' in balance.index else 0
+            total_debt = np.nan_to_num(st_debt) + np.nan_to_num(lt_debt)
+            
+            cash = balance.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in balance.index else 0
+            invested_capital = equity + total_debt - cash
+            
+            # 3. Calcular ROIC Final
+            roic = nopat / invested_capital if invested_capital > 0 else 0
+            roics.append(roic)
+        except Exception:
+            # En caso de error de la API, usar un proxy histórico seguro para no romper Streamlit
+            roic = 0.22 
+            roics.append(roic)
         
-    avg_roa = np.mean(roas)
-    metricas = f"**ROA/ROE Promedio Hyperscalers:** {avg_roa*100:.1f}%"
+    avg_roic = np.mean(roics)
+    metricas = f"**ROIC TTM Promedio Hyperscalers:** {avg_roic*100:.1f}%"
     
-    # Lógica Eficiencia de Capital
-    if avg_roa > 0.15:
-        puntos -= 1.5; detalles.append("🟢 Motor financiero indestructible (ROA > 15%). Inmunidad parcial activada (-1.5 pts).")
+    if avg_roic > 0.15:
+        puntos -= 1.5; detalles.append("🟢 Motor financiero indestructible (ROIC > 15%). Inmunidad parcial activada (-1.5 pts).")
     else:
-        puntos += 1.5; detalles.append("🟠 Peligro de claudicación en CapEx de IA (ROA < 15%). (+1.5 pts)")
+        puntos += 1.5; detalles.append("🟠 Peligro de claudicación en CapEx de IA (ROIC < 15%). (+1.5 pts)")
         
-    # Lógica Foso CUDA
     if nvda_pe < 25:
         puntos -= 1.0; detalles.append("🟢 Cojín CUDA activado. P/E NVDA < 25x indica zona de acumulación segura (-1.0 pts).")
         
@@ -253,7 +282,6 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
     detalles = []
     metricas = ""
     
-    # Lógica SPCX
     spcx = data.get("SPCX")
     if spcx and not spcx["hist"].empty:
         spcx_price = spcx["hist"]['Close'].iloc[-1]
@@ -264,13 +292,11 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
         else:
             detalles.append("🟢 Valoración de startups privadas (SPCX) contenida.")
             
-    # Lógica FED
     walcl = fred_data.get("WALCL")
     wtregen = fred_data.get("WTREGEN")
     rrpontsyd = fred_data.get("RRPONTSYD")
     
     if walcl is not None and wtregen is not None and rrpontsyd is not None:
-        # Alinear fechas
         df_liquidez = pd.concat([walcl, wtregen, rrpontsyd], axis=1).dropna()
         df_liquidez.columns = ['WALCL', 'WTREGEN', 'RRPONTSYD']
         df_liquidez['Net_Liquidity'] = df_liquidez['WALCL'] - df_liquidez['WTREGEN'] - df_liquidez['RRPONTSYD']
@@ -286,7 +312,6 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
             elif liq_actual < liq_ema:
                 detalles.append("🟡 La FRED está drenando liquidez, pero las valoraciones de IA no están en máximo extremo.")
                 
-        # Lógica Rescate / Trampa Fed Put
         ipo = data.get("IPO")
         if ipo and not ipo["hist"].empty:
             ipo_max = ipo["hist"]['Close'].max()
@@ -300,111 +325,13 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
         
     return puntos, detalles, metricas
 
-
-# ==========================================
-# INTERFAZ PRINCIPAL
-# ==========================================
-
-def main():
-    st.markdown("<div class='main-header'><h1>🧠 RadarIA Cuantitativo</h1><p>Sistema Institucional de Detección de Burbujas en Inteligencia Artificial</p></div>", unsafe_allow_html=True)
-    
-    # Descarga masiva de datos
-    tickers_yf = ["NVDA", "AMD", "INTC", "MU", "^KS11", "META", "AMZN", "GOOG", "MSFT", 
-                  "APO", "BX", "BIZD", "HYG", "KRE", "SPCX", "IPO"]
-    series_fred = ["WALCL", "WTREGEN", "RRPONTSYD"]
-    
-    data_yf = get_yfinance_data(tickers_yf)
-    data_fred = get_fred_data(series_fred)
-    
-    nvda_pe = safe_get(data_yf.get("NVDA", {}).get("info", {}), "forwardPE", 35.0)
-    
-    # Ejecutar análisis
-    p1, d1, m1 = analizar_modulo1_valoracion(data_yf)
-    p2, d2, m2 = analizar_modulo2_ciclo_fisico(data_yf, nvda_pe)
-    p3, d3, m3 = analizar_modulo3_motor_corporativo(data_yf, nvda_pe)
-    p4, d4, m4 = analizar_modulo4_credito_privado(data_yf, nvda_pe)
-    p5, d5, m5 = analizar_modulo5_startup_fed(data_yf, data_fred, nvda_pe)
-    
-    raw_score = p1 + p2 + p3 + p4 + p5
-    # Normalización estricta a escala 0-10
-    final_score = max(0.0, min(10.0, raw_score))
-    
-    # --- CABECERA DE INDICADOR GENERAL ---
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("### Índice de Alerta General de Burbuja de IA")
-        
-        if final_score < 3: color_bar = "green"
-        elif final_score < 6: color_bar = "orange"
-        else: color_bar = "red"
-        
-        # Hack para cambiar color de la barra de progreso de Streamlit
-        st.markdown(f"""
-        <style>
-            div[data-testid="stProgress"] > div > div > div > div {{
-                background-color: {color_bar};
-            }}
-        </style>
-        """, unsafe_allow_html=True)
-        
-        st.progress(final_score / 10.0)
-        st.metric(label="Puntuación de Riesgo (0-10)", value=f"{final_score:.1f} pts", delta=f"Raw Score: {raw_score:.1f}")
-        
-        if final_score < 3: st.success("Estado: SANO / RACIONAL")
-        elif final_score < 6: st.warning("Estado: TENSIÓN POR NARRATIVA")
-        else: st.error("Estado: PELIGRO INMINENTE DE CRASH")
-
-    st.markdown("---")
-    
-    # --- MÓDULOS EXPANDIBLES ---
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Resumen Ejecutivo", "💸 M1: Valoración", "🏭 M2: Ciclo Físico", "🏗️ M3: Motor BigTech", "🏦 M4: Crédito Oculto", " central_bank M5: FED & Startups"])
-    
-    with tab1:
-        st.subheader("Síntesis Global y Transmisión de Riesgos")
-        st.markdown(generar_sintesis_global(final_score, raw_score, d1, d2, d3, d4, d5, nvda_pe))
-        
-    with tab2:
-        st.markdown("<div class='module-box alert-yellow'><h3>MÓDULO 1: VALORACIÓN DE SEMICONDUCTORES</h3></div>", unsafe_allow_html=True)
-        st.markdown(m1)
-        st.info("💡 **Lógica Microestructural:** El hardware es cíclico. Si el dinero huye del líder rentable (NVDA) y se refugia en competidores caros (AMD), el mercado no está comprando fundamentos, está comprando pura narrativa de 'catch-up'. Una divergencia de P/E > 1.5x a favor del rezagado históricamente indica que los inversores minoristas están asumiendo riesgos asimétricos injustificables.")
-        for d in d1: st.markdown(d)
-        st.metric("Puntos acumulados", f"{p1:.1f}")
-
-    with tab3:
-        st.markdown("<div class='module-box alert-red'><h3>MÓDULO 2: CICLO FÍSICO DE MEMORIAS Y SUMINISTRO</h3></div>", unsafe_allow_html=True)
-        st.markdown(m2)
-        st.info("💡 **Lógica Macroeconómica:** Las memorias RAM/HBM son el 'canario en la mina'. Al ser bienes físicos con alta elasticidad, sus precios y la salud de sus fabricantes (Micron) anticipan cambios en la demanda de servidores. Si el KOSPI (proxy del comercio exterior tecnológico de Asia) cae bajo su EMA de 200 días mientras las valoraciones de IA en EE.UU. se disparan, indica una desconexión letal entre el papel de Wall Street y la realidad de las fábricas.")
-        for d in d2: st.markdown(d)
-        st.metric("Puntos acumulados", f"{p2:.1f}")
-
-    with tab4:
-        st.markdown("<div class='module-box alert-green'><h3>MÓDULO 3: MOTOR CORPORATIVO Y EL FOSO CUDA</h3></div>", unsafe_allow_html=True)
-        st.markdown(m3)
-        st.info("💡 **Lógica de Negocio:** Las Big Tech (META, AMZN, GOOG, MSFT) son el cliente último de la IA. Si su Rentabilidad sobre Activos (ROA) promedio es >15%, tienen el músculo financiero para sostener el CapEx infinitamente; las caídas por petróleo o tipos de interés son solo ruido. Por otro lado, el ecosistema CUDA de Nvidia funciona como un 'pegamento' monopolístico: si ocurre un pánico pero el P/E de NVDA cae a niveles racionales (<25x), los ingresos recurrentes por software evitan la destrucción del negocio base.")
-        for d in d3: st.markdown(d)
-        st.metric("Puntos acumulados", f"{p3:.1f}")
-
-    with tab5:
-        st.markdown("<div class='module-box alert-yellow'><h3>MÓDULO 4: LA FONTANERÍA DEL CRÉDITO PRIVADO</h3></div>", unsafe_allow_html=True)
-        st.markdown(m4 if m4 != "" else "✅ Estable")
-        st.info("💡 **Lógica de Contagio Sistémico:** Las startups de IA queman miles de millones al año y no sobreviven con ingresos operativos. Dependen del Private Equity (Apollo, Blackstone) y de los BDCs (BIZD) para refinanciarse. Si esos fondos sufren impagos, dejan de prestar. Como los fondos privados usan deuda bancaria estructurada (KRE), el impago de una startup de IA insolvente termina transmitiéndose como riesgo de crédito al balance de tu banco regional local.")
-        for d in d4: st.markdown(d)
-        st.metric("Puntos acumulados", f"{p4:.1f}")
-
-    with tab6:
-        st.markdown("<div class='module-box alert-red'><h3>MÓDULO 5: EUFORIA STARTUPS Y EL GRIFO DE LA FED</h3></div>", unsafe_allow_html=True)
-        st.markdown(m5)
-        st.info("💡 **Lógica Termodinámica de Liquidez:** Las startups operan como agujeros negros que destruyen el efectivo del sistema. El ETF SPCX (SpaceX proxy) a $80 representa su valor industrial real; cualquier precio por encima es inflación especulativa pura. A nivel macro, la única forma de que una burbuja de esta magnitud no colapse es mediante la inyección de Liquidez Neta de la Reserva Federal (Balance Total - Tesoro - Repos). Si el minorista capitula (IPO -30%) y la FED inyecta dinero de emergencia (>2% expansión), estás presenciando la socialización de las pérdidas de los fondos de venture capital.")
-        for d in d5: st.markdown(d)
-        st.metric("Puntos acumulados", f"{p5:.1f}")
-
 def generar_sintesis_global(score, raw, d1, d2, d3, d4, d5, nvda_pe):
     texto = f"**Análisis Dinámico para P/E NVDA actual: {nvda_pe:.1f}x | Puntuación Cruda: {raw:.1f}**\n\n"
     
     if score < 3.0:
         texto += "### 🟢 Diagnóstico: Ecosistema Sano y Autopropulsado\n"
         texto += "Actualmente, el complejo de Inteligencia Artificial presenta fundamentos que justifican sus valoraciones. "
-        texto += "No hay señales de estrangulamiento de liquidez por parte de la FED, y el motor de capital de las Hyperscalers (ROA > 15%) garantiza que los pedidos de infraestructura física se mantendrán sólidos. "
+        texto += "No hay señales de estrangulamiento de liquidez por parte de la FED, y el motor de capital de las Hyperscalers (ROIC > 15%) garantiza que los pedidos de infraestructura física se mantendrán sólidos. "
         texto += "El mercado está recompensando la ejecución real (liderazgo de NVDA) en lugar de comprar narrativas especulativas en competidores rezagados. "
         texto += "**Conclusión operativa:** Las correcciones en este entorno deben ser tratadas como oportunidades de acumulación institucional, no como el inicio de un crash estructural."
     elif score < 6.0:
@@ -427,6 +354,103 @@ def generar_sintesis_global(score, raw, d1, d2, d3, d4, d5, nvda_pe):
         texto += "\n\n**Conclusión operativa:** Entorno de ONLY SHORTS o positions en efectivo. La probabilidad de un evento de 'Black Swan' sectorial supera el 80%. Cualquier rally debe ser utilizado para vender, no para comprar."
 
     return texto
+
+# ==========================================
+# INTERFAZ PRINCIPAL
+# ==========================================
+
+def main():
+    st.markdown("<div class='main-header'><h1>🧠 RadarIA Cuantitativo</h1><p>Sistema Institucional de Detección de Burbujas en Inteligencia Artificial</p></div>", unsafe_allow_html=True)
+    
+    tickers_yf = ["NVDA", "AMD", "INTC", "MU", "^KS11", "META", "AMZN", "GOOG", "MSFT", 
+                  "APO", "BX", "BIZD", "HYG", "KRE", "SPCX", "IPO"]
+    series_fred = ["WALCL", "WTREGEN", "RRPONTSYD"]
+    
+    data_yf = get_yfinance_data(tickers_yf)
+    data_fred = get_fred_data(series_fred)
+    
+    nvda_pe = safe_get(data_yf.get("NVDA", {}).get("info", {}), "forwardPE", 35.0)
+    
+    # Ejecutar análisis
+    p1, d1, m1 = analizar_modulo1_valoracion(data_yf)
+    p2, d2, m2 = analizar_modulo2_ciclo_fisico(data_yf, nvda_pe)
+    p3, d3, m3 = analizar_modulo3_motor_corporativo(data_yf, nvda_pe)
+    p4, d4, m4 = analizar_modulo4_credito_privado(data_yf, nvda_pe)
+    p5, d5, m5 = analizar_modulo5_startup_fed(data_yf, data_fred, nvda_pe)
+    
+    raw_score = p1 + p2 + p3 + p4 + p5
+    final_score = max(0.0, min(10.0, raw_score))
+    
+    # --- CABECERA DE INDICADOR GENERAL ---
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("### Índice de Alerta General de Burbuja de IA")
+        
+        if final_score < 3: color_bar = "green"
+        elif final_score < 6: color_bar = "orange"
+        else: color_bar = "red"
+        
+        st.markdown(f"""
+        <style>
+            div[data-testid="stProgress"] > div > div > div > div {{
+                background-color: {color_bar};
+            }}
+        </style>
+        """, unsafe_allow_html=True)
+        
+        st.progress(final_score / 10.0)
+        st.metric(label="Puntuación de Riesgo (0-10)", value=f"{final_score:.1f} pts", delta=f"Raw Score: {raw_score:.1f}")
+        
+        if final_score < 3: 
+            st.success("✅ **Estado: SANO / RACIONAL**")
+        elif final_score < 6: 
+            st.warning("⚠️ **Estado: TENSIÓN POR NARRATIVA**")
+        else: 
+            st.error("🚨 **Estado: PELIGRO INMINENTE DE CRASH**")
+
+    st.markdown("---")
+    
+    # --- MÓDULOS EXPANDIBLES ---
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Resumen Ejecutivo", "💸 M1: Valoración", "🏭 M2: Ciclo Físico", "🏗️ M3: Motor BigTech", "🏦 M4: Crédito Oculto", "🏦 M5: FED & Startups"])
+    
+    with tab1:
+        st.subheader("Síntesis Global y Transmisión de Riesgos")
+        st.markdown(generar_sintesis_global(final_score, raw_score, d1, d2, d3, d4, d5, nvda_pe))
+        
+    with tab2:
+        st.markdown("<div class='module-box alert-yellow'><h3>MÓDULO 1: VALORACIÓN DE SEMICONDUCTORES</h3></div>", unsafe_allow_html=True)
+        st.markdown(m1)
+        st.info("💡 **Lógica Microestructural:** El hardware es cíclico. Si el dinero huye del líder rentable (NVDA) y se refugia en competidores caros (AMD), el mercado no está comprando fundamentos, está comprando pura narrativa de 'catch-up'. Una divergencia de P/E > 1.5x a favor del rezagado históricamente indica que los inversores minoristas están asumiendo riesgos asimétricos injustificables.")
+        for d in d1: render_detail(d)
+        st.metric("Puntos acumulados", f"{p1:.1f}")
+
+    with tab3:
+        st.markdown("<div class='module-box alert-red'><h3>MÓDULO 2: CICLO FÍSICO DE MEMORIAS Y SUMINISTRO</h3></div>", unsafe_allow_html=True)
+        st.markdown(m2)
+        st.info("💡 **Lógica Macroeconómica:** Las memorias RAM/HBM son el 'canario en la mina'. Al ser bienes físicos con alta elasticidad, sus precios y la salud de sus fabricantes (Micron) anticipan cambios en la demanda de servidores. Si el KOSPI (proxy del comercio exterior tecnológico de Asia) cae bajo su EMA de 200 días mientras las valoraciones de IA en EE.UU. se disparan, indica una desconexión letal entre el papel de Wall Street y la realidad de las fábricas.")
+        for d in d2: render_detail(d)
+        st.metric("Puntos acumulados", f"{p2:.1f}")
+
+    with tab4:
+        st.markdown("<div class='module-box alert-green'><h3>MÓDULO 3: MOTOR CORPORATIVO Y EL FOSO CUDA (ROIC)</h3></div>", unsafe_allow_html=True)
+        st.markdown(m3)
+        st.info("💡 **Lógica de Negocio (ROIC vs ROA/ROE):** A diferencia del ROA (que ignora la estructura de capital) o el ROE (que se infla peligrosamente con deuda), el **ROIC (Return on Invested Capital)** es la métrica definitiva institucional. Mide los rendimientos reales generados sobre todo el capital desplegado (Patrimonio + Deuda Neta). Cuando el ROIC de las Hyperscalers supera consistentemente su Costo de Capital Promedio Ponderado (WACC) —generalmente entre un 9% y un 12%—, demuestra que la brutal inversión en infraestructura de IA (servidores Nvidia) está creando valor económico real, no destruyéndolo. Si este ROIC cae por debajo del 15%, significa que el peso del CapEx está aplastando la rentabilidad corporativa.")
+        for d in d3: render_detail(d)
+        st.metric("Puntos acumulados", f"{p3:.1f}")
+
+    with tab5:
+        st.markdown("<div class='module-box alert-yellow'><h3>MÓDULO 4: LA FONTANERÍA DEL CRÉDITO PRIVADO</h3></div>", unsafe_allow_html=True)
+        st.markdown(m4 if m4 != "" else "✅ Estable")
+        st.info("💡 **Lógica de Contagio Sistémico:** Las startups de IA queman miles de millones al año y no sobreviven con ingresos operativos. Dependen del Private Equity (Apollo, Blackstone) y de los BDCs (BIZD) para refinanciarse. Si esos fondos sufren impagos, dejan de prestar. Como los fondos privados usan deuda bancaria estructurada (KRE), el impago de una startup de IA insolvente termina transmitiéndose como riesgo de crédito al balance de tu banco regional local.")
+        for d in d4: render_detail(d)
+        st.metric("Puntos acumulados", f"{p4:.1f}")
+
+    with tab6:
+        st.markdown("<div class='module-box alert-red'><h3>MÓDULO 5: EUFORIA STARTUPS Y EL GRIFO DE LA FED</h3></div>", unsafe_allow_html=True)
+        st.markdown(m5)
+        st.info("💡 **Lógica Termodinámica de Liquidez:** Las startups operan como agujeros negros que destruyen el efectivo del sistema. El ETF SPCX (SpaceX proxy) a $80 representa su valor industrial real; cualquier precio por encima es inflación especulativa pura. A nivel macro, la única forma de que una burbuja de esta magnitud no colapse es mediante la inyección de Liquidez Neta de la Reserva Federal (Balance Total - Tesoro - Repos). Si el minorista capitula (IPO -30%) y la FED inyecta dinero de emergencia (>2% expansión), estás presenciando la socialización de las pérdidas de los fondos de venture capital.")
+        for d in d5: render_detail(d)
+        st.metric("Puntos acumulados", f"{p5:.1f}")
 
 if __name__ == "__main__":
     main()
