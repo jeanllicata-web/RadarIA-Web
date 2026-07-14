@@ -3,3 +3,4 @@ yfinance
 pandas-datareader
 pandas
 numpy
+GitPython
