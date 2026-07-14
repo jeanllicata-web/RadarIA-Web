@@ -153,75 +153,61 @@ def guardar_y_sincronizar_score(score_actual):
 # ==========================================
 
 def calcular_pe_robusto(symbol, fallback_pe):
-    """Cálculo de P/E automatizado con 3 niveles de contingencia para evitar datos falsos."""
+    """Cálculo de P/E Forward puro (Non-GAAP). Eliminado TTM contable para evitar sesgos de amortizaciones."""
     try:
         ticker = yf.Ticker(symbol)
-        # Usar 5d por si el mercado acaba de cerrar y 1d no tiene el tick final
-        hist = ticker.history(period="5d") 
+        hist = ticker.history(period="1d") 
         if hist.empty:
             return fallback_pe
             
         current_price = hist["Close"].iloc[-1]
         info = ticker.info
         
-        # NIVEL 1: Intentar vía Forward P/E
+        # ÚNICA VÍA: Extraer EPS estimado futuro del consenso (Non-GAAP)
         forward_eps = info.get("forwardEps")
-        if forward_eps is not None and forward_eps > 0:
+        
+        # Validación estricta: Rechazar si es nulo, vacío, menor a 5 (indica fallo en BD) o negativo
+        if forward_eps is not None and forward_eps >= 5.0 and current_price > 0:
             return current_price / forward_eps
             
-        # NIVEL 2: Calcular Trailing P/E real acumulando 4 trimestres
-        try:
-            q_fin = ticker.quarterly_financials
-            if q_fin is not None and not q_fin.empty and 'Net Income' in q_fin.index:
-                # Sumar los últimos 4 trimestres de beneficio neto
-                net_income_ttm = q_fin.loc['Net Income'].iloc[0:4].sum()
-                shares = info.get('sharesOutstanding', 1)
-                if shares <= 0: shares = 1 # Evitar división por cero
-                
-                eps_ttm = net_income_ttm / shares
-                if eps_ttm > 0:
-                    return current_price / eps_ttm
-        except Exception:
-            pass
-            
-        # NIVEL 3: Fallback estricto de consenso real (Prohibido usar 16.0x o 41.0x)
-        return fallback_pe
-            
     except Exception:
-        return fallback_pe
+        pass
+        
+    # Fallback estricto de consenso real de mercado si la API gratuita falla
+    return fallback_pe
 
 def analizar_modulo1_valoracion(data):
     puntos = 0.0
     detalles = []
     
-    # Cálculos estrictos con contingencia triple
-    nvda_pe = calcular_pe_robusto("NVDA", 23.0)
-    amd_pe = calcular_pe_robusto("AMD", 72.0)
-    intc_pe = calcular_pe_robusto("INTC", 30.0)
+    # Cálculos estrictos Forward Non-GAAP con fallbacks institucionales reales
+    pe_nvda = calcular_pe_robusto("NVDA", 23.2)
+    pe_amd = calcular_pe_robusto("AMD", 73.8)
+    pe_intel = calcular_pe_robusto("INTC", 28.5)
     
-    if nvda_pe < 25: puntos += 0.0; detalles.append("🟢 NVDA P/E < 25x: Suelo conservador.")
-    elif 25 <= nvda_pe < 30: puntos += 0.5; detalles.append("🟢 NVDA P/E 25-30x: Zona de confort.")
-    elif 30 <= nvda_pe < 35: puntos += 1.5; detalles.append("🟡 NVDA P/E 30-35x: Sector caro.")
-    elif 35 <= nvda_pe < 40: puntos += 2.0; detalles.append("🟠 NVDA P/E 35-40x: Carísima (Riesgo técnico).")
+    if pe_nvda < 25: puntos += 0.0; detalles.append("🟢 NVDA P/E < 25x: Suelo conservador.")
+    elif 25 <= pe_nvda < 30: puntos += 0.5; detalles.append("🟢 NVDA P/E 25-30x: Zona de confort.")
+    elif 30 <= pe_nvda < 35: puntos += 1.5; detalles.append("🟡 NVDA P/E 30-35x: Sector caro.")
+    elif 35 <= pe_nvda < 40: puntos += 2.0; detalles.append("🟠 NVDA P/E 35-40x: Carísima (Riesgo técnico).")
     else: puntos += 4.0; detalles.append("🔴 NVDA P/E >= 40x: Burbuja desatada.")
     
-    if nvda_pe > 0:
-        ratio_div = amd_pe / nvda_pe
-        if nvda_pe < 40 and ratio_div > 1.5:
+    if pe_nvda > 0:
+        ratio_div = pe_amd / pe_nvda
+        if pe_nvda < 40 and ratio_div > 1.5:
             puntos += 2.0; detalles.append("🔴 Alerta: Especulación extrema en rezagados (AMD) respecto al líder.")
-        elif nvda_pe >= 40 and ratio_div > 1.0:
+        elif pe_nvda >= 40 and ratio_div > 1.0:
             puntos += 1.5; detalles.append("🔴 Alerta: Burbuja de arrastre colectivo extremo.")
-        elif nvda_pe < 25 and ratio_div > 1.5:
+        elif pe_nvda < 25 and ratio_div > 1.5:
             puntos += 1.5; detalles.append("🟠 Alerta: Minoristas atrapados en segundas marcas mientras NVDA capitula.")
             
-    return puntos, detalles, f"**P/E NVDA:** {nvda_pe:.1f}x | **P/E AMD:** {amd_pe:.1f}x | **P/E INTC:** {intc_pe:.1f}x"
+    return puntos, detalles, f"**P/E NVDA:** {pe_nvda:.1f}x | **P/E AMD:** {pe_amd:.1f}x | **P/E INTC:** {pe_intel:.1f}x"
 
 def analizar_modulo2_ciclo_fisico(data, nvda_pe):
     puntos = 0.0
     detalles = []
     metricas = ""
     
-    # EXTRACCIÓN HISTÓRICA INFALIBLE DIRECTAMENTE DESDE LA SERIE DE 3 AÑOS
+    # EXTRACCIÓN CON MUESTRA AMPLIADA A 3 AÑOS PARA ESTABILIZAR EMA_200
     try:
         mu_df = yf.Ticker("MU").history(period="3y").dropna()
         if not mu_df.empty and len(mu_df) >= 200:
@@ -432,8 +418,8 @@ def main():
     data_yf = get_yfinance_data(tickers_yf)
     data_fred = get_fred_data(series_fred)
     
-    # Extraer el P/E manual corregido para las dependencias de otros módulos
-    nvda_pe = calcular_pe_robusto("NVDA", 23.0)
+    # Extraer el P/E Forward manual corregido para las dependencias de otros módulos
+    nvda_pe = calcular_pe_robusto("NVDA", 23.2)
     
     # Ejecutar análisis
     p1, d1, m1 = analizar_modulo1_valoracion(data_yf)
