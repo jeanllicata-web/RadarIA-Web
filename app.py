@@ -116,32 +116,11 @@ def get_fred_data(series_ids):
             data[series] = None
     return data
 
-def calculate_ema(df, column='Close', window=200):
-    """Calcula la EMA localmente con dropna para evitar desfases por días sin mercado."""
-    try:
-        series = df[column].dropna()
-        if len(series) >= window:
-            return series.ewm(span=window, adjust=False).mean().iloc[-1]
-        return None
-    except:
-        return None
-
 def safe_get(dictionary, key, default=0.0):
     """Extrae datos de forma segura del diccionario .info de yfinance."""
     val = dictionary.get(key, default)
     if val is None: return default
     return val
-
-def get_forward_pe(info, fallback_pe):
-    """Calcula el Forward P/E real evitando errores fiscales de la API de Yahoo."""
-    try:
-        price = info.get("currentPrice")
-        fwd_eps = info.get("forwardEps")
-        if price is not None and fwd_eps is not None and fwd_eps > 0 and price > 0:
-            return price / fwd_eps
-    except:
-        pass
-    return fallback_pe
 
 def guardar_y_sincronizar_score(score_actual):
     """Gestiona el CSV local y sincroniza con GitHub para persistencia histórica."""
@@ -173,13 +152,33 @@ def guardar_y_sincronizar_score(score_actual):
 # LÓGICA DE LOS MÓDULOS
 # ==========================================
 
+def calcular_pe_manual(ticker_symbol, fallback_pe):
+    """Calcula el Forward P/E de forma manual y homogénea para evitar errores fiscales de la API."""
+    try:
+        t = yf.Ticker(ticker_symbol)
+        hist_1d = t.history(period="1d")
+        if hist_1d.empty:
+            return fallback_pe
+            
+        current_price = hist_1d["Close"].iloc[-1]
+        info = t.info
+        forward_eps = info.get("forwardEps")
+        
+        if forward_eps is not None and forward_eps > 0 and current_price > 0:
+            pe_calculado = current_price / forward_eps
+            return pe_calculado
+    except Exception:
+        pass
+    return fallback_pe
+
 def analizar_modulo1_valoracion(data):
     puntos = 0.0
     detalles = []
     
-    # Cálculo homogéneo con Forward P/E real y fallbacks institucionales
-    nvda_pe = get_forward_pe(data.get("NVDA", {}).get("info", {}), 23.5)
-    amd_pe = get_forward_pe(data.get("AMD", {}).get("info", {}), 45.0)
+    # Cálculo estricto con histórico de 1d y forwardEps
+    nvda_pe = calcular_pe_manual("NVDA", 23.0)
+    amd_pe = calcular_pe_manual("AMD", 70.0)
+    intc_pe = calcular_pe_manual("INTC", 30.0)
     
     if nvda_pe < 25: puntos += 0.0; detalles.append("🟢 NVDA P/E < 25x: Suelo conservador.")
     elif 25 <= nvda_pe < 30: puntos += 0.5; detalles.append("🟢 NVDA P/E 25-30x: Zona de confort.")
@@ -196,39 +195,42 @@ def analizar_modulo1_valoracion(data):
         elif nvda_pe < 25 and ratio_div > 1.5:
             puntos += 1.5; detalles.append("🟠 Alerta: Minoristas atrapados en segundas marcas mientras NVDA capitula.")
             
-    return puntos, detalles, f"**P/E NVDA:** {nvda_pe:.1f}x | **P/E AMD:** {amd_pe:.1f}x"
+    return puntos, detalles, f"**P/E NVDA:** {nvda_pe:.1f}x | **P/E AMD:** {amd_pe:.1f}x | **P/E INTC:** {intc_pe:.1f}x"
 
 def analizar_modulo2_ciclo_fisico(data, nvda_pe):
     puntos = 0.0
     detalles = []
     metricas = ""
     
-    mu = data.get("MU")
-    kospi = data.get("^KS11")
+    # Extracción estricta desde el histórico de 1 año para evitar desfases
+    mu_hist = data.get("MU", {}).get("hist")
+    kospi_hist = data.get("^KS11", {}).get("hist")
     
-    if mu and not mu["hist"].empty:
-        mu_price = mu["hist"]['Close'].iloc[-1]
-        mu_ema = calculate_ema(mu["hist"])
-        if mu_ema:
-            metricas += f"**MU Precio:** ${mu_price:.2f} vs **EMA 200:** ${mu_ema:.2f} | "
-            if mu_price < mu_ema and nvda_pe >= 30:
-                puntos += 2.0; detalles.append("🔴 Alerta Crítica: MU bajo EMA 200 con P/E NVDA >= 30x. Anticipa acumulación de inventarios y deflación de márgenes.")
-            elif mu_price < mu_ema:
-                detalles.append("🟡 MU debilucho, pero contexto de valoración de NVDA no es de riesgo extremo.")
-            else:
-                detalles.append("🟢 Ciclo físico de memorias sano (MU sobre EMA 200).")
-        else: detalles.append("⚪ Datos insuficientes para calcular EMA de MU.")
-    else: detalles.append("⚪ Error al obtener datos de Micron (MU).")
+    if mu_hist is not None and not mu_hist.empty:
+        precio_actual_mu = mu_hist["Close"].iloc[-1]
+        ema_200_mu = mu_hist["Close"].ewm(span=200, adjust=False).mean().iloc[-1]
+        
+        metricas += f"**MU Precio:** ${precio_actual_mu:.2f} vs **EMA 200:** ${ema_200_mu:.2f} | "
+        
+        if precio_actual_mu < ema_200_mu and nvda_pe >= 30:
+            puntos += 2.0; detalles.append("🔴 Alerta Crítica: MU bajo EMA 200 con P/E NVDA >= 30x. Anticipa acumulación de inventarios y deflación de márgenes.")
+        elif precio_actual_mu < ema_200_mu:
+            detalles.append("🟡 MU debilucho, pero contexto de valoración de NVDA no es de riesgo extremo.")
+        else:
+            detalles.append("🟢 Ciclo físico de memorias sano (MU sobre EMA 200).")
+    else: 
+        detalles.append("⚪ Error al obtener datos históricos completos de Micron (MU).")
 
-    if kospi and not kospi["hist"].empty:
-        k_price = kospi["hist"]['Close'].iloc[-1]
-        k_ema = calculate_ema(kospi["hist"])
-        if k_ema:
-            metricas += f"**KOSPI Precio:** {k_price:.2f} vs **EMA 200:** {k_ema:.2f}"
-            if k_price < k_ema and nvda_pe >= 35:
-                puntos += 1.5; detalles.append("🔴 Alerta: Debilidad industrial en Asia (KOSPI < EMA) mientras NVDA está en burbuja.")
-        else: detalles.append("⚪ Datos insuficientes para KOSPI.")
-    else: detalles.append("⚪ Error al obtener datos del KOSPI.")
+    if kospi_hist is not None and not kospi_hist.empty:
+        precio_actual_kospi = kospi_hist["Close"].iloc[-1]
+        ema_200_kospi = kospi_hist["Close"].ewm(span=200, adjust=False).mean().iloc[-1]
+        
+        metricas += f"**KOSPI Precio:** {precio_actual_kospi:.2f} vs **EMA 200:** {ema_200_kospi:.2f}"
+        
+        if precio_actual_kospi < ema_200_kospi and nvda_pe >= 35:
+            puntos += 1.5; detalles.append("🔴 Alerta: Debilidad industrial en Asia (KOSPI < EMA) mientras NVDA está en burbuja.")
+    else: 
+        detalles.append("⚪ Error al obtener datos históricos completos del KOSPI.")
         
     return puntos, detalles, metricas
 
@@ -289,8 +291,8 @@ def analizar_modulo4_credito_privado(data, nvda_pe):
     kre = data.get("KRE")
     
     hyg_bizd_alert = False
-    if (hyg and not hyg["hist"].empty and hyg["hist"]['Close'].iloc[-1] < calculate_ema(hyg["hist"])) or \
-       (bizd and not bizd["hist"].empty and bizd["hist"]['Close'].iloc[-1] < calculate_ema(bizd["hist"])):
+    if (hyg and not hyg["hist"].empty and hyg["hist"]['Close'].iloc[-1] < hyg["hist"]['Close'].ewm(span=200, adjust=False).mean().iloc[-1]) or \
+       (bizd and not bizd["hist"].empty and bizd["hist"]['Close'].iloc[-1] < bizd["hist"]['Close'].ewm(span=200, adjust=False).mean().iloc[-1]):
         hyg_bizd_alert = True
         
     if hyg_bizd_alert and nvda_pe >= 30:
@@ -302,9 +304,9 @@ def analizar_modulo4_credito_privado(data, nvda_pe):
 
     private_bank_alert = False
     if nvda_pe >= 30:
-        apo_bx_cond = (apo and not apo["hist"].empty and apo["hist"]['Close'].iloc[-1] < calculate_ema(apo["hist"])) or \
-                      (bx and not bx["hist"].empty and bx["hist"]['Close'].iloc[-1] < calculate_ema(bx["hist"]))
-        kre_cond = kre and not kre["hist"].empty and kre["hist"]['Close'].iloc[-1] < calculate_ema(kre["hist"])
+        apo_bx_cond = (apo and not apo["hist"].empty and apo["hist"]['Close'].iloc[-1] < apo["hist"]['Close'].ewm(span=200, adjust=False).mean().iloc[-1]) or \
+                      (bx and not bx["hist"].empty and bx["hist"]['Close'].iloc[-1] < bx["hist"]['Close'].ewm(span=200, adjust=False).mean().iloc[-1])
+        kre_cond = kre and not kre["hist"].empty and kre["hist"]['Close'].iloc[-1] < kre["hist"]['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
         
         if apo_bx_cond and kre_cond:
             private_bank_alert = True
@@ -339,7 +341,7 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
         df_liquidez['Net_Liquidity'] = df_liquidez['WALCL'] - df_liquidez['WTREGEN'] - df_liquidez['RRPONTSYD']
         
         liq_actual = df_liquidez['Net_Liquidity'].iloc[-1]
-        liq_ema = calculate_ema(df_liquidez, column='Net_Liquidity', window=200)
+        liq_ema = df_liquidez['Net_Liquidity'].ewm(span=200, adjust=False).mean().iloc[-1]
         
         metricas += f"**Liquidez Neta FED:** ${liq_actual/1e6:.1f}T"
         
@@ -406,9 +408,10 @@ def main():
     data_yf = get_yfinance_data(tickers_yf)
     data_fred = get_fred_data(series_fred)
     
-    nvda_pe = get_forward_pe(data_yf.get("NVDA", {}).get("info", {}), 23.5)
+    # Extraer el P/E manual corregido para las dependencias de otros módulos
+    nvda_pe = calcular_pe_manual("NVDA", 23.0)
     
-    # Ejecutar análisis
+    # Ejecutar análisis (Los módulos 1 y 2 usan las nuevas lógicas de ingeniería)
     p1, d1, m1 = analizar_modulo1_valoracion(data_yf)
     p2, d2, m2 = analizar_modulo2_ciclo_fisico(data_yf, nvda_pe)
     p3, d3, m3 = analizar_modulo3_motor_corporativo(data_yf, nvda_pe)
