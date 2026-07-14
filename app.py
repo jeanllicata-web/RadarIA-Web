@@ -152,33 +152,52 @@ def guardar_y_sincronizar_score(score_actual):
 # LÓGICA DE LOS MÓDULOS
 # ==========================================
 
-def calcular_pe_manual(ticker_symbol, fallback_pe):
-    """Calcula el Forward P/E de forma manual y homogénea para evitar errores fiscales de la API."""
+def calcular_pe_robusto(symbol, fallback_pe):
+    """Cálculo de P/E automatizado con 3 niveles de contingencia para evitar datos falsos."""
     try:
-        t = yf.Ticker(ticker_symbol)
-        hist_1d = t.history(period="1d")
-        if hist_1d.empty:
+        ticker = yf.Ticker(symbol)
+        # Usar 5d por si el mercado acaba de cerrar y 1d no tiene el tick final
+        hist = ticker.history(period="5d") 
+        if hist.empty:
             return fallback_pe
             
-        current_price = hist_1d["Close"].iloc[-1]
-        info = t.info
-        forward_eps = info.get("forwardEps")
+        current_price = hist["Close"].iloc[-1]
+        info = ticker.info
         
-        if forward_eps is not None and forward_eps > 0 and current_price > 0:
-            pe_calculado = current_price / forward_eps
-            return pe_calculado
+        # NIVEL 1: Intentar vía Forward P/E
+        forward_eps = info.get("forwardEps")
+        if forward_eps is not None and forward_eps > 0:
+            return current_price / forward_eps
+            
+        # NIVEL 2: Calcular Trailing P/E real acumulando 4 trimestres
+        try:
+            q_fin = ticker.quarterly_financials
+            if q_fin is not None and not q_fin.empty and 'Net Income' in q_fin.index:
+                # Sumar los últimos 4 trimestres de beneficio neto
+                net_income_ttm = q_fin.loc['Net Income'].iloc[0:4].sum()
+                shares = info.get('sharesOutstanding', 1)
+                if shares <= 0: shares = 1 # Evitar división por cero
+                
+                eps_ttm = net_income_ttm / shares
+                if eps_ttm > 0:
+                    return current_price / eps_ttm
+        except Exception:
+            pass
+            
+        # NIVEL 3: Fallback estricto de consenso real (Prohibido usar 16.0x o 41.0x)
+        return fallback_pe
+            
     except Exception:
-        pass
-    return fallback_pe
+        return fallback_pe
 
 def analizar_modulo1_valoracion(data):
     puntos = 0.0
     detalles = []
     
-    # Cálculo estricto con histórico de 1d y forwardEps
-    nvda_pe = calcular_pe_manual("NVDA", 23.0)
-    amd_pe = calcular_pe_manual("AMD", 70.0)
-    intc_pe = calcular_pe_manual("INTC", 30.0)
+    # Cálculos estrictos con contingencia triple
+    nvda_pe = calcular_pe_robusto("NVDA", 23.0)
+    amd_pe = calcular_pe_robusto("AMD", 72.0)
+    intc_pe = calcular_pe_robusto("INTC", 30.0)
     
     if nvda_pe < 25: puntos += 0.0; detalles.append("🟢 NVDA P/E < 25x: Suelo conservador.")
     elif 25 <= nvda_pe < 30: puntos += 0.5; detalles.append("🟢 NVDA P/E 25-30x: Zona de confort.")
@@ -202,35 +221,40 @@ def analizar_modulo2_ciclo_fisico(data, nvda_pe):
     detalles = []
     metricas = ""
     
-    # Extracción estricta desde el histórico de 1 año para evitar desfases
-    mu_hist = data.get("MU", {}).get("hist")
-    kospi_hist = data.get("^KS11", {}).get("hist")
-    
-    if mu_hist is not None and not mu_hist.empty:
-        precio_actual_mu = mu_hist["Close"].iloc[-1]
-        ema_200_mu = mu_hist["Close"].ewm(span=200, adjust=False).mean().iloc[-1]
-        
-        metricas += f"**MU Precio:** ${precio_actual_mu:.2f} vs **EMA 200:** ${ema_200_mu:.2f} | "
-        
-        if precio_actual_mu < ema_200_mu and nvda_pe >= 30:
-            puntos += 2.0; detalles.append("🔴 Alerta Crítica: MU bajo EMA 200 con P/E NVDA >= 30x. Anticipa acumulación de inventarios y deflación de márgenes.")
-        elif precio_actual_mu < ema_200_mu:
-            detalles.append("🟡 MU debilucho, pero contexto de valoración de NVDA no es de riesgo extremo.")
+    # EXTRACCIÓN HISTÓRICA INFALIBLE DIRECTAMENTE DESDE LA SERIE DE 1 AÑO
+    try:
+        mu_df = yf.Ticker("MU").history(period="1y").dropna()
+        if not mu_df.empty and len(mu_df) >= 200:
+            precio_actual_mu = mu_df['Close'].iloc[-1]
+            ema_200_mu = mu_df['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
+            
+            metricas += f"**MU Precio:** ${precio_actual_mu:.2f} vs **EMA 200:** ${ema_200_mu:.2f} | "
+            
+            if precio_actual_mu < ema_200_mu and nvda_pe >= 30:
+                puntos += 2.0; detalles.append("🔴 Alerta Crítica: MU bajo EMA 200 con P/E NVDA >= 30x. Anticipa acumulación de inventarios y deflación de márgenes.")
+            elif precio_actual_mu < ema_200_mu:
+                detalles.append("🟡 MU debilucho, pero contexto de valoración de NVDA no es de riesgo extremo.")
+            else:
+                detalles.append("🟢 Ciclo físico de memorias sano (MU sobre EMA 200).")
         else:
-            detalles.append("🟢 Ciclo físico de memorias sano (MU sobre EMA 200).")
-    else: 
-        detalles.append("⚪ Error al obtener datos históricos completos de Micron (MU).")
+            detalles.append("⚪ Datos históricos insuficientes para calcular EMA 200 de Micron (MU).")
+    except Exception:
+        detalles.append("⚪ Error crítico al descargar el histórico limpio de 1 año de Micron (MU).")
 
-    if kospi_hist is not None and not kospi_hist.empty:
-        precio_actual_kospi = kospi_hist["Close"].iloc[-1]
-        ema_200_kospi = kospi_hist["Close"].ewm(span=200, adjust=False).mean().iloc[-1]
-        
-        metricas += f"**KOSPI Precio:** {precio_actual_kospi:.2f} vs **EMA 200:** {ema_200_kospi:.2f}"
-        
-        if precio_actual_kospi < ema_200_kospi and nvda_pe >= 35:
-            puntos += 1.5; detalles.append("🔴 Alerta: Debilidad industrial en Asia (KOSPI < EMA) mientras NVDA está en burbuja.")
-    else: 
-        detalles.append("⚪ Error al obtener datos históricos completos del KOSPI.")
+    try:
+        kospi_df = yf.Ticker("^KS11").history(period="1y").dropna()
+        if not kospi_df.empty and len(kospi_df) >= 200:
+            precio_actual_kospi = kospi_df['Close'].iloc[-1]
+            ema_200_kospi = kospi_df['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
+            
+            metricas += f"**KOSPI Precio:** {precio_actual_kospi:.2f} vs **EMA 200:** {ema_200_kospi:.2f}"
+            
+            if precio_actual_kospi < ema_200_kospi and nvda_pe >= 35:
+                puntos += 1.5; detalles.append("🔴 Alerta: Debilidad industrial en Asia (KOSPI < EMA) mientras NVDA está en burbuja.")
+        else:
+            detalles.append("⚪ Datos históricos insuficientes para calcular EMA 200 del KOSPI.")
+    except Exception:
+        detalles.append("⚪ Error crítico al descargar el histórico limpio de 1 año del KOSPI.")
         
     return puntos, detalles, metricas
 
@@ -409,9 +433,9 @@ def main():
     data_fred = get_fred_data(series_fred)
     
     # Extraer el P/E manual corregido para las dependencias de otros módulos
-    nvda_pe = calcular_pe_manual("NVDA", 23.0)
+    nvda_pe = calcular_pe_robusto("NVDA", 23.0)
     
-    # Ejecutar análisis (Los módulos 1 y 2 usan las nuevas lógicas de ingeniería)
+    # Ejecutar análisis
     p1, d1, m1 = analizar_modulo1_valoracion(data_yf)
     p2, d2, m2 = analizar_modulo2_ciclo_fisico(data_yf, nvda_pe)
     p3, d3, m3 = analizar_modulo3_motor_corporativo(data_yf, nvda_pe)
@@ -477,7 +501,7 @@ def main():
     with tab4:
         st.markdown("<div class='module-box alert-green'><h3>MÓDULO 3: MOTOR CORPORATIVO Y EL FOSO CUDA (ROIC)</h3></div>", unsafe_allow_html=True)
         st.markdown(m3)
-        st.info("💡 **Lógica de Negocio (ROIC vs ROA/ROE):** A diferencia del ROA (que ignora la estructura de capital) o el ROE (que se infla peligrosamente con deuda), el **ROIC (Return on Invested Capital)** es la métrica definitiva institucional. Mide los rendimientos reales generados sobre todo el capital desplegado (Patrimonio + Deuda Neta). Cuando el ROIC de las Hyperscalers supera consistentemente su Costo de Capital Promedio Ponderado (WACC) —generalmente entre un 9% y un 12%—, demuestra que la brutal inversión en infraestructura de IA (servidores Nvidia) está creando valor económico real, no destruyéndolo. Si este ROIC cae por debajo del 15%, significa que el peso del CapEx está aplastando la rentabilidad corporativa.")
+        st.info("💡 **Lógica de Negocio (ROIC vs ROA/ROE):** A diferencia del ROA (que ignora la estructura de capital) o del ROE (que se infla peligrosamente con deuda), el **ROIC (Return on Invested Capital)** es la métrica definitiva institucional. Mide los rendimientos reales generados sobre todo el capital desplegado (Patrimonio + Deuda Neta). Cuando el ROIC de las Hyperscalers supera consistentemente su Costo de Capital Promedio Ponderado (WACC) —generalmente entre un 9% y un 12%—, demuestra que la brutal inversión en infraestructura de IA (servidores Nvidia) está creando valor económico real, no destruyéndolo. Si este ROIC cae por debajo del 15%, significa que el peso del CapEx está aplastando la rentabilidad corporativa.")
         for d in d3: render_detail(d)
         st.metric("Puntos acumulados", f"{p3:.1f}")
 
