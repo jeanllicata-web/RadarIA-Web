@@ -1,703 +1,432 @@
 import streamlit as st
 import yfinance as yf
-import plotly.graph_objects as go
-from datetime import datetime
+import pandas as pd
+import numpy as np
+import pandas_datareader.data as web
+from datetime import datetime, timedelta
 
+# Configuración de la página
 st.set_page_config(
-    page_title="RadarIA - Monitor de Riesgo Burbuja IA",
-    page_icon="📡",
+    page_title="RadarIA Cuantitativo | Burbuja de IA",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
+# Estilos CSS personalizados para un look institucional
 st.markdown("""
 <style>
-    :root {
-        --bg-color: #0e1117;
-        --text-color: #fafafa;
-        --green-neon: #00ff88;
-        --yellow-neon: #ffdd00;
-        --red-neon: #ff0044;
-    }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
     
-    .stApp {
-        background-color: var(--bg-color);
-        color: var(--text-color);
+    html, body, [class*="st-"] {
+        font-family: 'Inter', sans-serif;
+        color: #e0e0e0;
     }
     
     .main-header {
         text-align: center;
-        padding: 20px 0 10px 0;
+        padding: 2rem 0 1rem 0;
+        background: linear-gradient(180deg, #0d1117 0%, #161b22 100%);
+        border-bottom: 1px solid #30363d;
+        margin: -2.5rem -2rem 2rem -2rem;
+        padding-top: 4rem;
     }
     
-    .main-header h1 {
-        font-size: 2.5rem;
+    h1 {
+        font-size: 2.8rem;
         font-weight: 800;
-        background: linear-gradient(90deg, #00ff88, #00ccff);
+        background: linear-gradient(90deg, #58a6ff, #bc8cff);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom: 5px;
+        margin-bottom: 0.5rem;
     }
     
-    .main-header p {
-        color: #8899aa;
-        font-size: 1rem;
+    .stProgress > div > div > div > div {
+        background-color: linear-gradient(90deg, #238636, #f0883e, #da3633);
     }
     
-    .semaforo-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 25px 0;
-        gap: 20px;
-    }
-    
-    .semaforo {
-        width: 100px;
-        height: 100px;
-        border-radius: 50%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-size: 2rem;
-        font-weight: bold;
-        box-shadow: 0 0 30px rgba(0,0,0,0.5);
-        transition: all 0.3s ease;
-    }
-    
-    .semaforo.verde {
-        background: radial-gradient(circle, #00ff88, #00cc66);
-        color: #003311;
-        box-shadow: 0 0 40px rgba(0,255,136,0.6);
-    }
-    
-    .semaforo.amarillo {
-        background: radial-gradient(circle, #ffdd00, #ffaa00);
-        color: #332200;
-        box-shadow: 0 0 40px rgba(255,221,0,0.6);
-    }
-    
-    .semaforo.rojo {
-        background: radial-gradient(circle, #ff0044, #cc0033);
-        color: #330011;
-        box-shadow: 0 0 40px rgba(255,0,68,0.6);
-    }
-    
-    .semaforo-info {
-        text-align: left;
-        max-width: 400px;
-    }
-    
-    .semaforo-info h3 {
-        margin: 0 0 5px 0;
-        font-size: 1.3rem;
-    }
-    
-    .semaforo-info p {
-        margin: 0;
-        color: #8899aa;
-        font-size: 0.9rem;
-    }
-    
-    .conclusion-container {
-        background-color: #1a1f2e;
+    .metric-card {
+        background-color: #161b22;
+        border: 1px solid #30363d;
         border-radius: 10px;
-        padding: 20px;
-        margin-top: 20px;
-        border-left: 4px solid #00ff88;
-    }
-    
-    .conclusion-title {
-        font-size: 1.3rem;
-        font-weight: bold;
-        margin-bottom: 15px;
-    }
-    
-    .conclusion-text {
-        font-size: 1rem;
-        line-height: 1.6;
-        color: #ccd6e0;
-    }
-    
-    .refresh-button {
-        display: flex;
-        justify-content: center;
-        padding: 30px 0;
-    }
-    
-    .stButton > button {
-        background: linear-gradient(90deg, #00ff88, #00ccff);
-        color: #0e1117;
-        font-weight: bold;
-        padding: 12px 30px;
-        border: none;
-        border-radius: 30px;
-        font-size: 1.1rem;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 20px rgba(0,255,136,0.4);
-    }
-    
-    .footer {
+        padding: 1.5rem;
         text-align: center;
-        padding: 20px 0;
-        color: #556677;
-        font-size: 0.8rem;
-        border-top: 1px solid #1a1f2e;
-        margin-top: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
+    
+    .module-box {
+        background-color: #0d1117;
+        border-left: 4px solid #58a6ff;
+        padding: 1.5rem;
+        border-radius: 0 8px 8px 0;
+        margin-bottom: 1.5rem;
+    }
+    
+    .alert-red { border-left-color: #da3633; }
+    .alert-yellow { border-left-color: #f0883e; }
+    .alert-green { border-left-color: #238636; }
 </style>
 """, unsafe_allow_html=True)
 
-def obtener_datos_completos(ticker, timeout=5):
+# ==========================================
+# FUNCIONES AUXILIARES DE EXTRACTION
+# ==========================================
+
+@st.cache_data(ttl=3600, show_spinner="Descargando datos de Yahoo Finance...")
+def get_yfinance_data(tickers, period="1y"):
+    """Descarga datos históricos con manejo robusto de errores."""
+    data = {}
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period=period)
+            info = stock.info
+            if not hist.empty:
+                data[ticker] = {"hist": hist, "info": info}
+            else:
+                data[ticker] = None
+        except Exception as e:
+            data[ticker] = None
+    return data
+
+@st.cache_data(ttl=3600, show_spinner="Conectando con la FRED (Reserva Federal)...")
+def get_fred_data(series_ids):
+    """Descarga datos macroeconómicos de la FRED."""
+    data = {}
+    start = datetime.today() - timedelta(days=5*365) # 5 años para EMA 200 semanal
+    for series in series_ids:
+        try:
+            df = web.DataReader(series, 'fred', start)
+            if not df.empty:
+                data[series] = df
+            else:
+                data[series] = None
+        except Exception as e:
+            data[series] = None
+    return data
+
+def calculate_ema(df, column='Close', window=200):
+    """Calcula la EMA localmente. Si falla, devuelve None."""
     try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="5d", timeout=timeout)
-        q_fin = stock.quarterly_financials
-        q_bal = stock.quarterly_balance_sheet
-        q_cash = stock.quarterly_cashflow
-        info = stock.info
-        return {"status": "ok", "hist": hist, "q_fin": q_fin, "q_bal": q_bal, "q_cash": q_cash, "info": info}
-    except Exception as e:
-        return {"status": "error"}
+        if len(df) >= window:
+            return df[column].ewm(span=window, adjust=False).mean().iloc[-1]
+        return None
+    except:
+        return None
 
-def modulo_1_pe_ratio():
-    resultado = obtener_datos_completos("NVDA")
-    if resultado["status"] == "ok":
-        info = resultado["info"]
-        hist = resultado["hist"]
-        pe_ratio = info.get("trailingPE")
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        pe_limpio = str(round(pe_ratio, 2)) if pe_ratio is not None else "No disponible"
-        
-        if pe_ratio is not None and pe_ratio > 100:
-            en_alerta = True
-        elif pe_ratio is None:
-            en_alerta = True
-        else:
-            en_alerta = False
-            
-        return {"id": "M01", "nombre": "Múltiplos de Valoración (P/E Ratio)", "ticker": "NVDA", "explicacion": "Mide cuánto pagan los inversores por cada dólar de ganancia. Un valor muy alto sugiere que la acción está cara.", "precio_cierre": precio_limpio, "metrica_valor": pe_limpio, "en_alerta": en_alerta}
-    return {"id": "M01", "nombre": "Múltiplos de Valoración (P/E Ratio)", "ticker": "NVDA", "explicacion": "Mide cuánto pagan los inversores por cada dólar de ganancia. Un valor muy alto sugiere que la acción está cara.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
+def safe_get(dictionary, key, default=0.0):
+    """Extrae datos de forma segura del diccionario .info de yfinance."""
+    val = dictionary.get(key, default)
+    if val is None: return default
+    return val
 
-def modulo_2_crecimiento_ingresos():
-    resultado = obtener_datos_completos("MSFT")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        q_fin = resultado["q_fin"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        if q_fin is not None and not q_fin.empty and "Total Revenue" in q_fin.index:
-            revenue = q_fin.loc["Total Revenue"]
-            if len(revenue) >= 2 and revenue.iloc[1] != 0:
-                crecimiento = (revenue.iloc[0] - revenue.iloc[1]) / revenue.iloc[1]
-                crecimiento_limpio = f"{round(crecimiento * 100, 2)}%"
-                en_alerta = crecimiento < 0
-            else:
-                crecimiento_limpio = "No disponible"
-                en_alerta = True
-        else:
-            crecimiento_limpio = "No disponible"
-            en_alerta = True
-            
-        return {"id": "M02", "nombre": "Crecimiento de Ingresos vs Expectativas", "ticker": "MSFT", "explicacion": "Evalúa si los ingresos crecen al ritmo esperado. Una caída indica desaceleración del negocio.", "precio_cierre": precio_limpio, "metrica_valor": crecimiento_limpio, "en_alerta": en_alerta}
-    return {"id": "M02", "nombre": "Crecimiento de Ingresos vs Expectativas", "ticker": "MSFT", "explicacion": "Evalúa si los ingresos crecen al ritmo esperado. Una caída indica desaceleración del negocio.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
+# ==========================================
+# LÓGICA DE LOS MÓDULOS
+# ==========================================
 
-def modulo_3_capex_bigtech():
-    resultado = obtener_datos_completos("GOOGL")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        q_cash = resultado["q_cash"]
-        q_fin = resultado["q_fin"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        if q_cash is not None and not q_cash.empty and "Capital Expenditure" in q_cash.index and q_fin is not None and "Total Revenue" in q_fin.index:
-            capex = q_cash.loc["Capital Expenditure"]
-            revenue = q_fin.loc["Total Revenue"]
-            if len(capex) > 0 and len(revenue) > 0 and revenue.iloc[0] != 0:
-                ratio = abs(capex.iloc[0]) / revenue.iloc[0]
-                ratio_limpio = f"{round(ratio * 100, 2)}%"
-                en_alerta = ratio > 0.2
-            else:
-                ratio_limpio = "No disponible"
-                en_alerta = True
-        else:
-            ratio_limpio = "No disponible"
-            en_alerta = True
-            
-        return {"id": "M03", "nombre": "Inversión en CapEx de Big Tech", "ticker": "GOOGL", "explicacion": "Analiza la inversión en infraestructura respecto a sus ingresos. Un ratio alto puede afectar la rentabilidad.", "precio_cierre": precio_limpio, "metrica_valor": ratio_limpio, "en_alerta": en_alerta}
-    return {"id": "M03", "nombre": "Inversión en CapEx de Big Tech", "ticker": "GOOGL", "explicacion": "Analiza la inversión en infraestructura respecto a sus ingresos. Un ratio alto puede afectar la rentabilidad.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_4_concentracion_mercado():
-    resultado = obtener_datos_completos("AAPL")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        info = resultado["info"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        institucionales = info.get("heldPercentInstitutions")
-        inst_limpio = f"{round(institucionales * 100, 2)}%" if institucionales is not None else "No disponible"
-        
-        if institucionales is not None and institucionales > 0.8:
-            en_alerta = True
-        elif institucionales is None:
-            en_alerta = True
-        else:
-            en_alerta = False
-            
-        return {"id": "M04", "nombre": "Concentración de Mercado (Top 5)", "ticker": "AAPL", "explicacion": "Mide el porcentaje de acciones en manos de grandes fondos. Si es muy alto, una venta masiva causaría un colapso.", "precio_cierre": precio_limpio, "metrica_valor": inst_limpio, "en_alerta": en_alerta}
-    return {"id": "M04", "nombre": "Concentración de Mercado (Top 5)", "ticker": "AAPL", "explicacion": "Mide el porcentaje de acciones en manos de grandes fondos. Si es muy alto, una venta masiva causaría un colapso.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_5_margen_beneficio():
-    resultado = obtener_datos_completos("AMZN")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        q_fin = resultado["q_fin"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        if q_fin is not None and not q_fin.empty and "Operating Income" in q_fin.index and "Total Revenue" in q_fin.index:
-            op_income = q_fin.loc["Operating Income"]
-            revenue = q_fin.loc["Total Revenue"]
-            if len(op_income) > 0 and len(revenue) > 0 and revenue.iloc[0] != 0:
-                margen = op_income.iloc[0] / revenue.iloc[0]
-                margen_limpio = f"{round(margen * 100, 2)}%"
-                en_alerta = margen < 0.1
-            else:
-                margen_limpio = "No disponible"
-                en_alerta = True
-        else:
-            margen_limpio = "No disponible"
-            en_alerta = True
-            
-        return {"id": "M05", "nombre": "Margen de Beneficio Operativo", "ticker": "AMZN", "explicacion": "Mide la eficiencia operativa. Un margen bajo indica que los costos se están comiendo las ganancias.", "precio_cierre": precio_limpio, "metrica_valor": margen_limpio, "en_alerta": en_alerta}
-    return {"id": "M05", "nombre": "Margen de Beneficio Operativo", "ticker": "AMZN", "explicacion": "Mide la eficiencia operativa. Un margen bajo indica que los costos se están comiendo las ganancias.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_6_endeudamiento():
-    resultado = obtener_datos_completos("META")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        q_bal = resultado["q_bal"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        if q_bal is not None and not q_bal.empty and "Total Debt" in q_bal.index and "Stockholders Equity" in q_bal.index:
-            debt = q_bal.loc["Total Debt"]
-            equity = q_bal.loc["Stockholders Equity"]
-            if len(debt) > 0 and len(equity) > 0 and equity.iloc[0] != 0:
-                ratio = debt.iloc[0] / equity.iloc[0]
-                deuda_limpio = f"{round(ratio, 2)}"
-                en_alerta = ratio > 2
-            else:
-                deuda_limpio = "No disponible"
-                en_alerta = True
-        else:
-            deuda_limpio = "No disponible"
-            en_alerta = True
-            
-        return {"id": "M06", "nombre": "Nivel de Endeudamiento Neto", "ticker": "META", "explicacion": "Compara la deuda total con el patrimonio. Un nivel alto significa que la empresa tiene un riesgo financiero peligroso.", "precio_cierre": precio_limpio, "metrica_valor": deuda_limpio, "en_alerta": en_alerta}
-    return {"id": "M06", "nombre": "Nivel de Endeudamiento Neto", "ticker": "META", "explicacion": "Compara la deuda total con el patrimonio. Un nivel alto significa que la empresa tiene un riesgo financiero peligroso.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_7_volatilidad():
-    resultado = obtener_datos_completos("AMD")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-            if len(hist) > 1:
-                returns = hist["Close"].pct_change().dropna()
-                if len(returns) > 0:
-                    vol = returns.std() * (252 ** 0.5) 
-                    vol_limpio = f"{round(vol * 100, 2)}%"
-                    en_alerta = vol > 0.4 
-                else:
-                    vol_limpio = "No disponible"
-                    en_alerta = True
-            else:
-                vol_limpio = "No disponible"
-                en_alerta = True
-        else:
-            precio_limpio = "No disponible"
-            vol_limpio = "No disponible"
-            en_alerta = True
-            
-        return {"id": "M07", "nombre": "Volatilidad del Sector (Implied Vol)", "ticker": "AMD", "explicacion": "Mide las oscilaciones máximas recientes. Un valor alto implica riesgo extremo de caídas repentinas.", "precio_cierre": precio_limpio, "metrica_valor": vol_limpio, "en_alerta": en_alerta}
-    return {"id": "M07", "nombre": "Volatilidad del Sector (Implied Vol)", "ticker": "AMD", "explicacion": "Mide las oscilaciones máximas recientes. Un valor alto implica riesgo extremo de caídas repentinas.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_8_fcf_yield():
-    resultado = obtener_datos_completos("AVGO")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        q_cash = resultado["q_cash"]
-        info = resultado["info"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        if q_cash is not None and not q_cash.empty and "Free Cash Flow" in q_cash.index:
-            fcf = q_cash.loc["Free Cash Flow"]
-            market_cap = info.get("marketCap")
-            if len(fcf) > 0 and market_cap is not None and market_cap != 0:
-                yield_fcf = fcf.iloc[0] / market_cap
-                yield_limpio = f"{round(yield_fcf * 100, 2)}%"
-                en_alerta = yield_fcf < 0.02
-            else:
-                yield_limpio = "No disponible"
-                en_alerta = True
-        else:
-            yield_limpio = "No disponible"
-            en_alerta = True
-            
-        return {"id": "M08", "nombre": "Flujo de Caja Libre (FCF Yield)", "ticker": "AVGO", "explicacion": "Mide el efectivo real que genera la empresa respecto a su valor de mercado. Si es bajo, la acción está sobrevalorada.", "precio_cierre": precio_limpio, "metrica_valor": yield_limpio, "en_alerta": en_alerta}
-    return {"id": "M08", "nombre": "Flujo de Caja Libre (FCF Yield)", "ticker": "AVGO", "explicacion": "Mide el efectivo real que genera la empresa respecto a su valor de mercado. Si es bajo, la acción está sobrevalorada.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_9_insiders_selling():
-    resultado = obtener_datos_completos("SMCI")
-    if resultado["status"] == "ok":
-        info = resultado["info"]
-        hist = resultado["hist"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        insiders = info.get("heldPercentInsiders")
-        insiders_limpio = f"{round(insiders * 100, 2)}%" if insiders is not None else "No disponible"
-        
-        if insiders is not None and insiders < 0.01:
-            en_alerta = True
-        elif insiders is None:
-            en_alerta = True
-        else:
-            en_alerta = False
-            
-        return {"id": "M09", "nombre": "Insiders Selling (Venta de Directivos)", "ticker": "SMCI", "explicacion": "Mide si los directivos tienen acciones de su propia empresa. Si no tienen, puede ser porque saben que la acción va a caer.", "precio_cierre": precio_limpio, "metrica_valor": insiders_limpio, "en_alerta": en_alerta}
-    return {"id": "M09", "nombre": "Insiders Selling (Venta de Directivos)", "ticker": "SMCI", "explicacion": "Mide si los directivos tienen acciones de su propia empresa. Si no tienen, puede ser porque saben que la acción va a caer.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_10_rd_gasto():
-    resultado = obtener_datos_completos("PLTR")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        q_fin = resultado["q_fin"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        if q_fin is not None and not q_fin.empty and "Research And Development" in q_fin.index and "Total Revenue" in q_fin.index:
-            rd = q_fin.loc["Research And Development"]
-            revenue = q_fin.loc["Total Revenue"]
-            if len(rd) > 0 and len(revenue) > 0 and revenue.iloc[0] != 0:
-                ratio_rd = rd.iloc[0] / revenue.iloc[0]
-                rd_limpio = f"{round(ratio_rd * 100, 2)}%"
-                en_alerta = ratio_rd < 0.1
-            else:
-                rd_limpio = "No disponible"
-                en_alerta = True
-        else:
-            rd_limpio = "No disponible"
-            en_alerta = True
-            
-        return {"id": "M10", "nombre": "Gasto en I+D (R&D % Ingresos)", "ticker": "PLTR", "explicacion": "Evalúa si la empresa invierte lo suficiente en innovación. En IA, un gasto bajo significa que quedarán atrás frente a la competencia.", "precio_cierre": precio_limpio, "metrica_valor": rd_limpio, "en_alerta": en_alerta}
-    return {"id": "M10", "nombre": "Gasto en I+D (R&D % Ingresos)", "ticker": "PLTR", "explicacion": "Evalúa si la empresa invierte lo suficiente en innovación. En IA, un gasto bajo significa que quedarán atrás frente a la competencia.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_11_primas_riesgo():
-    precio_limpio = "No disponible"
-    resultado_opciones = "No disponible"
-    estado_alerta = "❌ Error de consulta"
-    en_alerta = True
+def analizar_modulo1_valoracion(data):
+    puntos = 0.0
+    detalles = []
+    nvda_pe = safe_get(data.get("NVDA", {}).get("info", {}), "forwardPE", 35.0) # Default 35x si falla
+    amd_pe = safe_get(data.get("AMD", {}).get("info", {}), "forwardPE", 35.0)
     
-    try:
-        ticker_obj = yf.Ticker("ASML")
-        hist = ticker_obj.history(period="5d", timeout=5)
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-            
-        fechas_vencimiento = ticker_obj.options
-        if fechas_vencimiento:
-            proximo_vencimiento = fechas_vencimiento[0]
-            cadena_opciones = ticker_obj.option_chain(proximo_vencimiento)
-            calls = cadena_opciones.calls
-            volatilidad_promedio = round(calls['impliedVolatility'].mean() * 100, 2)
-            precio_prima_promedio = round(calls['lastPrice'].mean(), 2)
-            
-            resultado_opciones = f"Prima Promedio: ${precio_prima_promedio} | Volatilidad Implícita: {volatilidad_promedio}%"
-            
-            if volatilidad_promedio > 50:
-                estado_alerta = "⚠️ ALERTA ACTIVADA (Alta Incertidumbre)"
-                en_alerta = True
-            else:
-                estado_alerta = "✅ ESTABLE"
-                en_alerta = False
-        else:
-            resultado_opciones = "Sin opciones disponibles"
-            estado_alerta = "⚠️ ALERTA (Falta de Liquidez)"
-            en_alerta = True
-            
-    except Exception as e:
-        pass
-        
-    return {
-        "id": "M11", 
-        "nombre": "Primas de Riesgo en Opciones", 
-        "ticker": "ASML", 
-        "explicacion": "Analiza el mercado de derivados para evaluar el coste de las primas y la protección de fondos de cobertura contra caídas.",
-        "precio_cierre": precio_limpio, 
-        "metrica_valor": resultado_opciones, 
-        "en_alerta": en_alerta,
-        "estado_especifico": estado_alerta
-    }
-
-def modulo_12_apalancamiento():
-    resultado = obtener_datos_completos("TSM")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        q_bal = resultado["q_bal"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        if q_bal is not None and not q_bal.empty and "Total Assets" in q_bal.index and "Stockholders Equity" in q_bal.index:
-            activos = q_bal.loc["Total Assets"]
-            patrimonio = q_bal.loc["Stockholders Equity"]
-            if len(activos) > 0 and len(patrimonio) > 0 and patrimonio.iloc[0] != 0:
-                apalancamiento = activos.iloc[0] / patrimonio.iloc[0]
-                apal_limpio = f"{round(apalancamiento, 2)}x"
-                en_alerta = apalancamiento > 3
-            else:
-                apal_limpio = "No disponible"
-                en_alerta = True
-        else:
-            apal_limpio = "No disponible"
-            en_alerta = True
-            
-        return {"id": "M12", "nombre": "Multiplicador de Apalancamiento", "ticker": "TSM", "explicacion": "Indica cuántos dólares de activos se tienen por cada dólar de capital propio. Si es muy alto, cualquier pérdida se multiplica exponencialmente.", "precio_cierre": precio_limpio, "metrica_valor": apal_limpio, "en_alerta": en_alerta}
-    return {"id": "M12", "nombre": "Multiplicador de Apalancamiento", "ticker": "TSM", "explicacion": "Indica cuántos dólares de activos se tienen por cada dólar de capital propio. Si es muy alto, cualquier pérdida se multiplica exponencialmente.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def modulo_13_sentimiento():
-    resultado = obtener_datos_completos("QCOM")
-    if resultado["status"] == "ok":
-        hist = resultado["hist"]
-        info = resultado["info"]
-        
-        if hist is not None and not hist.empty:
-            precio_limpio = f"${round(hist['Close'].iloc[-1], 2)}"
-        else:
-            precio_limpio = "No disponible"
-            
-        recomendacion = info.get("recommendationKey")
-        rec_limpio = str(recomendacion) if recomendacion is not None else "No disponible"
-        
-        if recomendacion is not None and recomendacion in ["sell", "reduce"]:
-            en_alerta = True
-        elif recomendacion is None:
-            en_alerta = True
-        else:
-            en_alerta = False
-            
-        return {"id": "M13", "nombre": "Sentimiento del Mercado", "ticker": "QCOM", "explicacion": "Resume lo que opinan los analistas de Wall Street. Si la recomendación es vender, es una señal de alarma clara sobre la empresa.", "precio_cierre": precio_limpio, "metrica_valor": rec_limpio, "en_alerta": en_alerta}
-    return {"id": "M13", "nombre": "Sentimiento del Mercado", "ticker": "QCOM", "explicacion": "Resume lo que opinan los analistas de Wall Street. Si la recomendación es vender, es una señal de alarma clara sobre la empresa.", "precio_cierre": "No disponible", "metrica_valor": "No disponible", "en_alerta": True}
-
-def crear_grafico_riesgo(historial):
-    fig = go.Figure()
+    # Lógica NVDA Absoluta
+    if nvda_pe < 25: puntos += 0.0; detalles.append("🟢 NVDA P/E < 25x: Suelo conservador.")
+    elif 25 <= nvda_pe < 30: puntos += 0.5; detalles.append("🟢 NVDA P/E 25-30x: Zona de confort.")
+    elif 30 <= nvda_pe < 35: puntos += 1.5; detalles.append("🟡 NVDA P/E 30-35x: Sector caro.")
+    elif 35 <= nvda_pe < 40: puntos += 2.0; detalles.append("🟠 NVDA P/E 35-40x: Carísima (Riesgo técnico).")
+    else: puntos += 4.0; detalles.append("🔴 NVDA P/E >= 40x: Burbuja desatada.")
     
-    fig.add_shape(type="rect", x0=-0.5, y0=0, x1=3.5, y1=13.5, fillcolor="rgba(0, 255, 136, 0.05)", line_width=0)
-    fig.add_shape(type="rect", x0=3.5, y0=0, x1=7.5, y1=13.5, fillcolor="rgba(255, 221, 0, 0.05)", line_width=0)
-    fig.add_shape(type="rect", x0=7.5, y0=0, x1=13.5, y1=13.5, fillcolor="rgba(255, 0, 68, 0.05)", line_width=0)
+    # Lógica Divergencia AMD
+    if nvda_pe > 0:
+        ratio_div = amd_pe / nvda_pe
+        if nvda_pe < 40 and ratio_div > 1.5:
+            puntos += 2.0; detalles.append("🔴 Alerta: Especulación extrema en rezagados (AMD) respecto al líder.")
+        elif nvda_pe >= 40 and ratio_div > 1.0:
+            puntos += 1.5; detalles.append("🔴 Alerta: Burbuja de arrastre colectivo extremo.")
+        elif nvda_pe < 25 and ratio_div > 1.5:
+            puntos += 1.5; detalles.append("🟠 Alerta: Minoristas atrapados en segundas marcas mientras NVDA capitula.")
+            
+    return puntos, detalles, f"**P/E NVDA:** {nvda_pe:.1f}x | **P/E AMD:** {amd_pe:.1f}x"
+
+def analizar_modulo2_ciclo_fisico(data, nvda_pe):
+    puntos = 0.0
+    detalles = []
+    metricas = ""
     
-    if len(historial) > 0:
-        horas = [p["hora"] for p in historial]
-        scores = [p["score"] for p in historial]
+    mu = data.get("MU")
+    kospi = data.get("^KS11")
+    
+    if mu and not mu["hist"].empty:
+        mu_price = mu["hist"]['Close'].iloc[-1]
+        mu_ema = calculate_ema(mu["hist"])
+        if mu_ema:
+            metricas += f"**MU Precio:** ${mu_price:.2f} vs **EMA 200:** ${mu_ema:.2f} | "
+            if mu_price < mu_ema and nvda_pe >= 30:
+                puntos += 2.0; detalles.append("🔴 Alerta Crítica: MU bajo EMA 200 con P/E NVDA >= 30x. Anticipa acumulación de inventarios y deflación de márgenes.")
+            elif mu_price < mu_ema:
+                detalles.append("🟡 MU debilucho, pero contexto de valoración de NVDA no es de riesgo extremo.")
+            else:
+                detalles.append("🟢 Ciclo físico de memorias sano (MU sobre EMA 200).")
+        else: detalles.append("⚪ Datos insuficientes para calcular EMA de MU.")
+    else: detalles.append("⚪ Error al obtener datos de Micron (MU).")
+
+    if kospi and not kospi["hist"].empty:
+        k_price = kospi["hist"]['Close'].iloc[-1]
+        k_ema = calculate_ema(kospi["hist"])
+        if k_ema:
+            metricas += f"**KOSPI Precio:** {k_price:.2f} vs **EMA 200:** {k_ema:.2f}"
+            if k_price < k_ema and nvda_pe >= 35:
+                puntos += 1.5; detalles.append("🔴 Alerta: Debilidad industrial en Asia (KOSPI < EMA) mientras NVDA está en burbuja.")
+        else: detalles.append("⚪ Datos insuficientes para KOSPI.")
+    else: detalles.append("⚪ Error al obtener datos del KOSPI.")
         
-        fig.add_trace(go.Scatter(
-            x=horas,
-            y=scores,
-            mode='lines+markers',
-            line=dict(color='#00ff88', width=3),
-            marker=dict(color='#00ff88', size=10, line=dict(color='white', width=2)),
-            name='Evolución del Riesgo'
-        ))
+    return puntos, detalles, metricas
+
+def analizar_modulo3_motor_corporativo(data, nvda_pe):
+    puntos = 0.0
+    detalles = []
+    tickers_hs = ["META", "AMZN", "GOOG", "MSFT"]
+    roas = []
+    
+    for t in tickers_hs:
+        info = data.get(t, {}).get("info", {})
+        # Preferencia ROA sobre ROE para evitar distorsión por apalancamiento
+        roa = safe_get(info, "returnOnAssets", None)
+        if roa is None: roa = safe_get(info, "returnOnEquity", 0.10) # Fallback ROE
+        roas.append(roa)
         
-        fig.update_xaxes(type='category', tickangle=45)
+    avg_roa = np.mean(roas)
+    metricas = f"**ROA/ROE Promedio Hyperscalers:** {avg_roa*100:.1f}%"
+    
+    # Lógica Eficiencia de Capital
+    if avg_roa > 0.15:
+        puntos -= 1.5; detalles.append("🟢 Motor financiero indestructible (ROA > 15%). Inmunidad parcial activada (-1.5 pts).")
     else:
-        fig.add_trace(go.Scatter(x=["Esperando datos..."], y=[0], mode='markers', marker=dict(color='gray', size=10)))
-        fig.update_xaxes(type='category')
+        puntos += 1.5; detalles.append("🟠 Peligro de claudicación en CapEx de IA (ROA < 15%). (+1.5 pts)")
         
-    fig.add_annotation(x=1.5, y=12.5, text="ZONA VERDE\n(Riesgo Bajo)", showarrow=False, font=dict(color="rgba(0, 255, 136, 0.5)", size=12))
-    fig.add_annotation(x=5.5, y=12.5, text="ZONA AMARILLA\n(Riesgo Moderado)", showarrow=False, font=dict(color="rgba(255, 221, 0, 0.5)", size=12))
-    fig.add_annotation(x=10.5, y=12.5, text="ZONA ROJA\n(Riesgo Crítico)", showarrow=False, font=dict(color="rgba(255, 0, 68, 0.5)", size=12))
-    
-    fig.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='white'),
-        title=dict(text='Historial de Nivel de Riesgo del Sector IA', font=dict(size=18, color='white'), x=0.5, xanchor='center'),
-        yaxis=dict(title='Número de Alertas', range=[0, 13], gridcolor='rgba(255,255,255,0.1)', tick0=0, dtick=1),
-        margin=dict(l=50, r=50, t=60, b=80),
-        height=400,
-        showlegend=False
-    )
-    
-    return fig
+    # Lógica Foso CUDA
+    if nvda_pe < 25:
+        puntos -= 1.0; detalles.append("🟢 Cojín CUDA activado. P/E NVDA < 25x indica zona de acumulación segura (-1.0 pts).")
+        
+    return puntos, detalles, metricas
 
-def generar_conclusion(alertas):
-    if alertas == 0:
-        return "El sector de la Inteligencia Artificial presenta **fundamentales sólidos y estables** en este momento. Todos los indicadores analizados se encuentran dentro de rangos saludables, lo que sugiere que las valoraciones están justificadas por el crecimiento real de los negocios. No se detectan señales de burbuja inminente."
-    elif alertas <= 3:
-        return f"El sector de la IA muestra **algunos puntos de atención** con {alertas} indicadores en zona de alerta. Aunque la mayoría de los fundamentales se mantienen sólidos, se recomienda monitorear de cerca estos aspectos. No hay señales claras de burbuja, pero existe cierta tensión en el mercado."
-    elif alertas <= 7:
-        return f"**PRECAUCIÓN:** El sector presenta {alertas} indicadores en alerta, lo que sugiere un **incremento significativo en el nivel de riesgo**. Varios fundamentales clave muestran señales de estrés. Se recomienda extremar la cautela y considerar reducir la exposición a los activos más afectados."
+def analizar_modulo4_credito_privado(data, nvda_pe):
+    puntos = 0.0
+    detalles = []
+    metricas = ""
+    
+    hyg = data.get("HYG")
+    bizd = data.get("BIZD")
+    apo = data.get("APO")
+    bx = data.get("BX")
+    kre = data.get("KRE")
+    
+    hyg_bizd_alert = False
+    if (hyg and not hyg["hist"].empty and hyg["hist"]['Close'].iloc[-1] < calculate_ema(hyg["hist"])) or \
+       (bizd and not bizd["hist"].empty and bizd["hist"]['Close'].iloc[-1] < calculate_ema(bizd["hist"])):
+        hyg_bizd_alert = True
+        
+    if hyg_bizd_alert and nvda_pe >= 30:
+        puntos += 2.0; detalles.append("🔴 Alerta: Estrés y cierre del grifo de deuda High Yield / BDCs mientras NVDA está caro.")
+    elif hyg_bizd_alert:
+        detalles.append("🟡 Crédito basura bajo EMA, pero el múltiplo de NVDA no está en zona de peligro.")
     else:
-        return f"**ALERTA ROJA:** Con {alertas} indicadores en alerta, los datos sugieren un **sobrecalentamiento severo en el sector de la IA**. Existe un **riesgo muy elevado de corrección significativa o estallido de burbuja**. Se recomienda encarecidamente reducir la exposición al sector y considerar estrategias de protección de capital."
+        detalles.append("🟢 Mercado de crédito privado (HYG/BIZD) líquido y estable.")
+
+    private_bank_alert = False
+    if nvda_pe >= 30:
+        apo_bx_cond = (apo and not apo["hist"].empty and apo["hist"]['Close'].iloc[-1] < calculate_ema(apo["hist"])) or \
+                      (bx and not bx["hist"].empty and bx["hist"]['Close'].iloc[-1] < calculate_ema(bx["hist"]))
+        kre_cond = kre and not kre["hist"].empty and kre["hist"]['Close'].iloc[-1] < calculate_ema(kre["hist"])
+        
+        if apo_bx_cond and kre_cond:
+            private_bank_alert = True
+            puntos += 2.0; detalles.append("🔴 Alerta Sistémica: Grietas en Private Equity (APO/BX) contagiando a la Banca Regional (KRE).")
+            
+    if not private_bank_alert and not hyg_bizd_alert: metricas = "✅ Estable"
+        
+    return puntos, detalles, metricas
+
+def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
+    puntos = 0.0
+    detalles = []
+    metricas = ""
+    
+    # Lógica SPCX
+    spcx = data.get("SPCX")
+    if spcx and not spcx["hist"].empty:
+        spcx_price = spcx["hist"]['Close'].iloc[-1]
+        ratio_inflacion = spcx_price / 80.0
+        metricas += f"**SPCX:** ${spcx_price:.2f} (Ratio Inflación: {ratio_inflacion:.1f}x) | "
+        if ratio_inflacion > 1.5:
+            puntos += 2.0; detalles.append("🔴 Alerta: Euforia insostenible en startups privadas (SPCX > $120).")
+        else:
+            detalles.append("🟢 Valoración de startups privadas (SPCX) contenida.")
+            
+    # Lógica FED
+    walcl = fred_data.get("WALCL")
+    wtregen = fred_data.get("WTREGEN")
+    rrpontsyd = fred_data.get("RRPONTSYD")
+    
+    if walcl is not None and wtregen is not None and rrpontsyd is not None:
+        # Alinear fechas
+        df_liquidez = pd.concat([walcl, wtregen, rrpontsyd], axis=1).dropna()
+        df_liquidez.columns = ['WALCL', 'WTREGEN', 'RRPONTSYD']
+        df_liquidez['Net_Liquidity'] = df_liquidez['WALCL'] - df_liquidez['WTREGEN'] - df_liquidez['RRPONTSYD']
+        
+        liq_actual = df_liquidez['Net_Liquidity'].iloc[-1]
+        liq_ema = calculate_ema(df_liquidez, column='Net_Liquidity', window=200)
+        
+        metricas += f"**Liquidez Neta FED:** ${liq_actual/1e6:.1f}T"
+        
+        if liq_ema:
+            if liq_actual < liq_ema and nvda_pe >= 35:
+                puntos += 2.5; detalles.append("🔴 Alerta Crítica: Estrangulamiento monetario soberano (Liquidez < EMA 200) con NVDA en burbuja.")
+            elif liq_actual < liq_ema:
+                detalles.append("🟡 La FRED está drenando liquidez, pero las valoraciones de IA no están en máximo extremo.")
+                
+        # Lógica Rescate / Trampa Fed Put
+        ipo = data.get("IPO")
+        if ipo and not ipo["hist"].empty:
+            ipo_max = ipo["hist"]['Close'].max()
+            ipo_actual = ipo["hist"]['Close'].iloc[-1]
+            walcl_yoy = (walcl.iloc[-1] / walcl.iloc[-52]) - 1 if len(walcl) >= 52 else 0
+            
+            if (ipo_actual / ipo_max) < 0.70 and walcl_yoy > 0.02:
+                puntos += 1.5; detalles.append("🚨 ALERTA CRÍTICA: Capitulación del minorista (IPO -30%) rescatada por inyección de la FED (>2% YoY). Socializando pérdidas.")
+    else:
+        detalles.append("⚪ No se pudieron obtener los datos de la FRED para analizar liquidez.")
+        
+    return puntos, detalles, metricas
+
+
+# ==========================================
+# INTERFAZ PRINCIPAL
+# ==========================================
 
 def main():
-    if 'historial_scores' not in st.session_state:
-        st.session_state.historial_scores = []
+    st.markdown("<div class='main-header'><h1>🧠 RadarIA Cuantitativo</h1><p>Sistema Institucional de Detección de Burbujas en Inteligencia Artificial</p></div>", unsafe_allow_html=True)
+    
+    # Descarga masiva de datos
+    tickers_yf = ["NVDA", "AMD", "INTC", "MU", "^KS11", "META", "AMZN", "GOOG", "MSFT", 
+                  "APO", "BX", "BIZD", "HYG", "KRE", "SPCX", "IPO"]
+    series_fred = ["WALCL", "WTREGEN", "RRPONTSYD"]
+    
+    data_yf = get_yfinance_data(tickers_yf)
+    data_fred = get_fred_data(series_fred)
+    
+    nvda_pe = safe_get(data_yf.get("NVDA", {}).get("info", {}), "forwardPE", 35.0)
+    
+    # Ejecutar análisis
+    p1, d1, m1 = analizar_modulo1_valoracion(data_yf)
+    p2, d2, m2 = analizar_modulo2_ciclo_fisico(data_yf, nvda_pe)
+    p3, d3, m3 = analizar_modulo3_motor_corporativo(data_yf, nvda_pe)
+    p4, d4, m4 = analizar_modulo4_credito_privado(data_yf, nvda_pe)
+    p5, d5, m5 = analizar_modulo5_startup_fed(data_yf, data_fred, nvda_pe)
+    
+    raw_score = p1 + p2 + p3 + p4 + p5
+    # Normalización estricta a escala 0-10
+    final_score = max(0.0, min(10.0, raw_score))
+    
+    # --- CABECERA DE INDICADOR GENERAL ---
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("### Índice de Alerta General de Burbuja de IA")
+        
+        if final_score < 3: color_bar = "green"
+        elif final_score < 6: color_bar = "orange"
+        else: color_bar = "red"
+        
+        # Hack para cambiar color de la barra de progreso de Streamlit
+        st.markdown(f"""
+        <style>
+            div[data-testid="stProgress"] > div > div > div > div {{
+                background-color: {color_bar};
+            }}
+        </style>
+        """, unsafe_allow_html=True)
+        
+        st.progress(final_score / 10.0)
+        st.metric(label="Puntuación de Riesgo (0-10)", value=f"{final_score:.1f} pts", delta=f"Raw Score: {raw_score:.1f}")
+        
+        if final_score < 3: st.success("Estado: SANO / RACIONAL")
+        elif final_score < 6: st.warning("Estado: TENSIÓN POR NARRATIVA")
+        else: st.error("Estado: PELIGRO INMINENTE DE CRASH")
 
-    modulos = [
-        modulo_1_pe_ratio, modulo_2_crecimiento_ingresos, modulo_3_capex_bigtech,
-        modulo_4_concentracion_mercado, modulo_5_margen_beneficio, modulo_6_endeudamiento,
-        modulo_7_volatilidad, modulo_8_fcf_yield, modulo_9_insiders_selling,
-        modulo_10_rd_gasto, modulo_11_primas_riesgo, modulo_12_apalancamiento,
-        modulo_13_sentimiento
-    ]
+    st.markdown("---")
     
-    resultados = [modulo() for modulo in modulos]
+    # --- MÓDULOS EXPANDIBLES ---
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Resumen Ejecutivo", "💸 M1: Valoración", "🏭 M2: Ciclo Físico", "🏗️ M3: Motor BigTech", "🏦 M4: Crédito Oculto", " central_bank M5: FED & Startups"])
     
-    alertas = sum(1 for resultado in resultados if resultado["en_alerta"] == True)
+    with tab1:
+        st.subheader("Síntesis Global y Transmisión de Riesgos")
+        st.markdown(generar_sintesis_global(final_score, raw_score, d1, d2, d3, d4, d5, nvda_pe))
+        
+    with tab2:
+        st.markdown("<div class='module-box alert-yellow'><h3>MÓDULO 1: VALORACIÓN DE SEMICONDUCTORES</h3></div>", unsafe_allow_html=True)
+        st.markdown(m1)
+        st.info("💡 **Lógica Microestructural:** El hardware es cíclico. Si el dinero huye del líder rentable (NVDA) y se refugia en competidores caros (AMD), el mercado no está comprando fundamentos, está comprando pura narrativa de 'catch-up'. Una divergencia de P/E > 1.5x a favor del rezagado históricamente indica que los inversores minoristas están asumiendo riesgos asimétricos injustificables.")
+        for d in d1: st.markdown(d)
+        st.metric("Puntos acumulados", f"{p1:.1f}")
+
+    with tab3:
+        st.markdown("<div class='module-box alert-red'><h3>MÓDULO 2: CICLO FÍSICO DE MEMORIAS Y SUMINISTRO</h3></div>", unsafe_allow_html=True)
+        st.markdown(m2)
+        st.info("💡 **Lógica Macroeconómica:** Las memorias RAM/HBM son el 'canario en la mina'. Al ser bienes físicos con alta elasticidad, sus precios y la salud de sus fabricantes (Micron) anticipan cambios en la demanda de servidores. Si el KOSPI (proxy del comercio exterior tecnológico de Asia) cae bajo su EMA de 200 días mientras las valoraciones de IA en EE.UU. se disparan, indica una desconexión letal entre el papel de Wall Street y la realidad de las fábricas.")
+        for d in d2: st.markdown(d)
+        st.metric("Puntos acumulados", f"{p2:.1f}")
+
+    with tab4:
+        st.markdown("<div class='module-box alert-green'><h3>MÓDULO 3: MOTOR CORPORATIVO Y EL FOSO CUDA</h3></div>", unsafe_allow_html=True)
+        st.markdown(m3)
+        st.info("💡 **Lógica de Negocio:** Las Big Tech (META, AMZN, GOOG, MSFT) son el cliente último de la IA. Si su Rentabilidad sobre Activos (ROA) promedio es >15%, tienen el músculo financiero para sostener el CapEx infinitamente; las caídas por petróleo o tipos de interés son solo ruido. Por otro lado, el ecosistema CUDA de Nvidia funciona como un 'pegamento' monopolístico: si ocurre un pánico pero el P/E de NVDA cae a niveles racionales (<25x), los ingresos recurrentes por software evitan la destrucción del negocio base.")
+        for d in d3: st.markdown(d)
+        st.metric("Puntos acumulados", f"{p3:.1f}")
+
+    with tab5:
+        st.markdown("<div class='module-box alert-yellow'><h3>MÓDULO 4: LA FONTANERÍA DEL CRÉDITO PRIVADO</h3></div>", unsafe_allow_html=True)
+        st.markdown(m4 if m4 != "" else "✅ Estable")
+        st.info("💡 **Lógica de Contagio Sistémico:** Las startups de IA queman miles de millones al año y no sobreviven con ingresos operativos. Dependen del Private Equity (Apollo, Blackstone) y de los BDCs (BIZD) para refinanciarse. Si esos fondos sufren impagos, dejan de prestar. Como los fondos privados usan deuda bancaria estructurada (KRE), el impago de una startup de IA insolvente termina transmitiéndose como riesgo de crédito al balance de tu banco regional local.")
+        for d in d4: st.markdown(d)
+        st.metric("Puntos acumulados", f"{p4:.1f}")
+
+    with tab6:
+        st.markdown("<div class='module-box alert-red'><h3>MÓDULO 5: EUFORIA STARTUPS Y EL GRIFO DE LA FED</h3></div>", unsafe_allow_html=True)
+        st.markdown(m5)
+        st.info("💡 **Lógica Termodinámica de Liquidez:** Las startups operan como agujeros negros que destruyen el efectivo del sistema. El ETF SPCX (SpaceX proxy) a $80 representa su valor industrial real; cualquier precio por encima es inflación especulativa pura. A nivel macro, la única forma de que una burbuja de esta magnitud no colapse es mediante la inyección de Liquidez Neta de la Reserva Federal (Balance Total - Tesoro - Repos). Si el minorista capitula (IPO -30%) y la FED inyecta dinero de emergencia (>2% expansión), estás presenciando la socialización de las pérdidas de los fondos de venture capital.")
+        for d in d5: st.markdown(d)
+        st.metric("Puntos acumulados", f"{p5:.1f}")
+
+def generar_sintesis_global(score, raw, d1, d2, d3, d4, d5, nvda_pe):
+    texto = f"**Análisis Dinámico para P/E NVDA actual: {nvda_pe:.1f}x | Puntuación Cruda: {raw:.1f}**\n\n"
     
-    ahora = datetime.now().strftime('%H:%M:%S')
-    st.session_state.historial_scores.append({"hora": ahora, "score": alertas})
-    
-    if len(st.session_state.historial_scores) > 20:
-        st.session_state.historial_scores = st.session_state.historial_scores[-20:]
-    
-    if alertas == 0:
-        semaforo_clase = "verde"
-        semaforo_emoji = "✅"
-        semaforo_texto = "SISTEMA SEGURO"
-        semaforo_desc = "Todos los módulos están operativos. No se detectan riesgos críticos en la burbuja de IA."
-    elif alertas <= 3:
-        semaforo_clase = "amarillo"
-        semaforo_emoji = "⚠️"
-        semaforo_texto = "PRECAUCIÓN"
-        semaforo_desc = f"Se han detectado {alertas} alerta(s). Algunos módulos muestran señales de riesgo."
+    if score < 3.0:
+        texto += "### 🟢 Diagnóstico: Ecosistema Sano y Autopropulsado\n"
+        texto += "Actualmente, el complejo de Inteligencia Artificial presenta fundamentos que justifican sus valoraciones. "
+        texto += "No hay señales de estrangulamiento de liquidez por parte de la FED, y el motor de capital de las Hyperscalers (ROA > 15%) garantiza que los pedidos de infraestructura física se mantendrán sólidos. "
+        texto += "El mercado está recompensando la ejecución real (liderazgo de NVDA) en lugar de comprar narrativas especulativas en competidores rezagados. "
+        texto += "**Conclusión operativa:** Las correcciones en este entorno deben ser tratadas como oportunidades de acumulación institucional, no como el inicio de un crash estructural."
+    elif score < 6.0:
+        texto += "### 🟡 Diagnóstico: Tensión por Narrativa y Desconexiones Parciales\n"
+        texto += "El sistema está mostrando fatiga microestructural. Aunque los balances corporativos grandes no han roto todavía, "
+        texto += "estamos viendo anomalías preocupantes: "
+        if any("rezagados" in d or "AMD" in d for d in d1): texto += "**Divergencia de valoración en semiconductores secundarios**, "
+        if any("KOSPI" in d or "MU" in d for d in d2): texto += "**Debilidad en la cadena de suministro físico asiático**, "
+        if any("HYG" in d or "BIZD" in d for d in d4): texto += "**Aprietes iniciales en el crédito de alto riesgo**, "
+        texto += ". Esto indica que el mercado está transitando de una fase de inversión basada en crecimiento a una fase de supervivencia de narrativas. "
+        texto += "**Conclusión operativa:** Reducir exposición a activos puros de narrativa (segundas marcas, startups sin cash flow) y refugiarse en el duopolio real (NVDA y las Hyperscalers). No es una burbuja generalizada todavía, pero el margen de error se ha estrechado drásticamente."
     else:
-        semaforo_clase = "rojo"
-        semaforo_emoji = "🚨"
-        semaforo_texto = "ALERTA ROJA"
-        semaforo_desc = f"CRÍTICO: {alertas} módulos en alerta. Alto riesgo de burbuja en el sector IA."
-    
-    st.markdown("""
-    <div class="main-header">
-        <h1>📡 RadarIA</h1>
-        <p>Monitor de Riesgo de la Burbuja de Inteligencia Artificial</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-    <div class="semaforo-container">
-        <div class="semaforo {semaforo_clase}">{semaforo_emoji}</div>
-        <div class="semaforo-info">
-            <h3>{semaforo_texto}</h3>
-            <p>{semaforo_desc}</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-    <div style="text-align: center; margin-bottom: 20px;">
-        <span style="background-color: #1a1f2e; padding: 8px 15px; border-radius: 20px; font-size: 0.9rem;">
-            Última actualización: {ahora} | Módulos en alerta: {alertas}/13
-        </span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.plotly_chart(crear_grafico_riesgo(st.session_state.historial_scores), use_container_width=True)
-    
-    for resultado in resultados:
-        with st.expander(f"{resultado['id']} - {resultado['nombre']} ({resultado['ticker']})"):
-            
-            if resultado['id'] == 'M11':
-                st.markdown(f"""**Métrica analizada:** {resultado['explicacion']}
+        texto += "### 🔴 Diagnóstico: Peligro Inminente de Crash Sistémico\n"
+        texto += "Los indicadores cuantitativos están gritando un colapso inminente del ecosistema de IA. La transmisión del riesgo es total y letal: "
+        if any("FED" in d or "Liquidez" in d or "Estrangulamiento" in d for d in d5): texto += "**La Reserva Federal ha cortado el flujo de liquidez soberana**, destruyendo el respaldo último del mercado. "
+        if any("Socializando" in d or "Capitulación" in d for d in d5): texto += "**Se ha activado la trampa del Fed Put**: el minorista está siendo liquidado mientras se inyecta dinero para rescatar a los fondos privados. "
+        if any("CapEx" in d or "claudicación" in d for d in d3): texto += "**El motor corporativo ha claudicado**, significando que las Big Tech ya no pueden justificar el gasto en infraestructura. "
+        if any("Crédito" in d or "contagiando" in d for d in d4): texto += "**El sistema de crédito privado está contagiando a la banca tradicional**, lo que amenaza con un apalancamiento inverso masivo (margin calls). "
+        if any("inventarios" in d or "deflación" in d for d in d2): texto += "**El ciclo físico ha roto su soporte**, confirmando que la demanda real de servidores ha desacelerado bruscamente frente al exceso de oferta de chips. "
+        texto += "\n\n**Conclusión operativa:** Entorno de ONLY SHORTS o positions en efectivo. La probabilidad de un evento de 'Black Swan' sectorial supera el 80%. Cualquier rally debe ser utilizado para vender, no para comprar."
 
-**Datos en Directo de Opciones:** {resultado['metrica_valor']}
-
-**Estado del Módulo:** {resultado['estado_especifico']}
-""")
-            else:
-                estado_texto = "✅ Normal" if not resultado["en_alerta"] else "🚨 Alerta Activada"
-                
-                precio_str = f"${resultado['precio_cierre']}" if resultado['precio_cierre'] != "No disponible" else "No disponible"
-                
-                st.markdown(f"""**Métrica analizada:** {resultado['explicacion']}
-
-**Último Precio de Cierre:** {precio_str}
-
-**Resultado de Wall Street ({resultado['nombre']}):** {resultado['metrica_valor']}
-
-**Estado de Alerta:** {estado_texto}
-""")
-    
-    st.markdown("""
-    <div class="conclusion-container">
-        <div class="conclusion-title">🔍 CONCLUSIÓN EJECUTIVA DEL RADAR</div>
-        <div class="conclusion-text">
-    """, unsafe_allow_html=True)
-    
-    st.markdown(generar_conclusion(alertas))
-    
-    st.markdown("""
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="refresh-button">', unsafe_allow_html=True)
-    
-    if st.button("🔄 Actualizar Datos en Tiempo Real"):
-        st.rerun()
-    
-    st.markdown("""
-    </div>
-    <div class="footer">
-        <p>RadarIA v2.0 | Desarrollado para monitorizar el riesgo de la burbuja de IA | Datos proporcionados por Yahoo Finance</p>
-        <p>© 2023 RadarIA. Todos los derechos reservados.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    return texto
 
 if __name__ == "__main__":
     main()
