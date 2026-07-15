@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import requests
 from github import Github
 import io
 from datetime import datetime
@@ -65,42 +64,38 @@ def inyectar_css():
     st.markdown(css, unsafe_allow_html=True)
 
 # ==========================================
-# NUEVO MÓDULO DE DESCARGA FRED (SUSTITUCIÓN EXACTA)
+# MÓDULO DE DESCARGA FRED (CORREGIDO Y BLINDADO CONTRA KEYERROR)
 # ==========================================
 def descargar_datos_fred():
     series_ids = ["WALCL", "WTREGEN", "RRPONTSYD"]
-    df_unificado = pd.DataFrame()
+    dfs = {}
     
-    for series in series_ids:
-        # Ajuste de producción: URL corregida al endpoint real del CSV de FRED para evitar error 404
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
+    for s_id in series_ids:
         try:
-            # Descarga el CSV directo de la FRED
-            df_tmp = pd.read_csv(url, parse_dates=["DATE"], index_col="DATE")
-            # Forzar a que los datos sean numéricos (si hay un texto o vacío lo vuelve NaN)
-            df_tmp[series] = pd.to_numeric(df_tmp[series], errors='coerce')
-            
-            # Trazabilidad Metrológica inyectada
-            if not df_tmp.empty:
-                registro_metrológico.append({"Fuente": "FRED (CSV Directo)", "Ticker": series, "Estado": "Éxito", "Valor Crudo": df_tmp[series].iloc[-1]})
-            else:
-                registro_metrológico.append({"Fuente": "FRED (CSV Directo)", "Ticker": series, "Estado": "Vacío", "Valor Crudo": None})
-            
-            # Unir las tablas alineando perfectamente las fechas del índice
-            if df_unificado.empty:
-                df_unificado = df_tmp
-            else:
-                df_unificado = df_unificado.join(df_tmp, how='outer')
+            url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={s_id}"
+            df = pd.read_csv(url, parse_dates=["DATE"], index_col="DATE")
+            df[s_id] = pd.to_numeric(df[s_id], errors='coerce')
+            dfs[s_id] = df
+            if not df.empty:
+                registro_metrológico.append({"Fuente": "FRED (CSV Directo)", "Ticker": s_id, "Estado": "Éxito", "Valor Crudo": df[s_id].iloc[-1]})
         except Exception as e:
-            registro_metrológico.append({"Fuente": "FRED (CSV Directo)", "Ticker": series, "Estado": f"Error: {str(e)[:50]}", "Valor Crudo": None})
-            print(f"Error descargando {series}: {e}")
+            dfs[s_id] = pd.DataFrame(columns=[s_id])
+            registro_metrológico.append({"Fuente": "FRED (CSV Directo)", "Ticker": s_id, "Estado": f"Error: {str(e)[:50]}", "Valor Crudo": None})
             
-    # 🔥 EL TRUCO CLAVE: Rellenar los huecos vacíos ("None") con el último dato conocido
-    df_unificado = df_unificado.ffill().dropna()
+    # Unificación explícita usando el primer DataFrame como base real
+    df_unificado = dfs["WALCL"].join(dfs["WTREGEN"], how='outer').join(dfs["RRPONTSYD"], how='outer')
     
-    # Ahora la operación matemática es 100% segura y sin "None"
-    df_unificado['Liquidez_Neta'] = df_unificado['WALCL'] - df_unificado['WTREGEN'] - df_unificado['RRPONTSYD']
+    # Relleno de datos vacíos por desfase de días
+    df_unificado = df_unificado.ffill().bfill().dropna()
     
+    # Inyección matemática 100% segura
+    if not df_unificado.empty and all(k in df_unificado.columns for k in series_ids):
+        df_unificado['Liquidez_Neta'] = df_unificado['WALCL'] - df_unificado['WTREGEN'] - df_unificado['RRPONTSYD']
+    else:
+        # Fallback maestro si la FRED está caída por completo en el servidor de la nube
+        df_unificado['Liquidez_Neta'] = 6000000.0  # Nivel proxy base de 6.0T
+        registro_metrológico.append({"Fuente": "FRED (Fallback Maestro)", "Ticker": "Liquidez_Neta", "Estado": "Proxy Inyectado", "Valor Crudo": 6000000.0})
+        
     return df_unificado
 
 # ==========================================
@@ -110,7 +105,6 @@ def obtener_datos_yfinance(ticker, periodo="3y"):
     try:
         df = yf.Ticker(ticker).history(period=periodo)
         if not df.empty:
-            # REGLA 3: FILTRADO DE NAN / NONE EN DATAFRAMES
             df['Close'] = df['Close'].ffill().bfill()
             df = df.dropna(subset=['Close'])
             
@@ -133,9 +127,7 @@ def obtener_pe(ticker):
         tk = yf.Ticker(ticker)
         pe = tk.info.get("trailingPE")
         
-        # REGLA 1: CONTROL DE ERRORES PARA P/E
-        if pe is None or pe <= 0 or pe != pe: # pe != pe captura NaN
-            # Fallback 1: Cálculo implícito (Precio / BPA estimado)
+        if pe is None or pe <= 0 or pe != pe:
             precio = tk.info.get("currentPrice") or tk.info.get("previousClose")
             eps = tk.info.get("forwardEps") or tk.info.get("trailingEps")
             
@@ -144,7 +136,6 @@ def obtener_pe(ticker):
                 registro_metrológico.append({"Fuente": "Yahoo Finance (Implícito)", "Ticker": ticker, "Estado": "Éxito (Calculado)", "Valor Crudo": round(pe, 2)})
                 return pe
             
-            # Fallback 2: Valor seguro de mercado base
             valores_base = {"NVDA": 30.0, "AMD": 100.0}
             pe = valores_base.get(ticker, 35.0)
             registro_metrológico.append({"Fuente": "Yahoo Finance (Fallback)", "Ticker": ticker, "Estado": "Éxito (Valor Base)", "Valor Crudo": pe})
@@ -154,7 +145,6 @@ def obtener_pe(ticker):
             return pe
             
     except Exception as e:
-        # Fallback por excepción de conexión
         valores_base = {"NVDA": 30.0, "AMD": 100.0}
         pe = valores_base.get(ticker, 35.0)
         registro_metrológico.append({"Fuente": "Yahoo Finance (Excepción)", "Ticker": ticker, "Estado": f"Fallback por Error: {str(e)[:30]}", "Valor Crudo": pe})
@@ -186,7 +176,6 @@ def obtener_roic_ttm(ticker):
         return roic
         
     except Exception as e:
-        # REGLA 2: FALLBACK ROIC INSTITUCIONAL SI HAY BLOQUEO DE IP O ERROR
         roics_institucionales = {"META": 26.0, "AMZN": 18.0, "GOOG": 24.0, "MSFT": 27.0}
         roic_fallback = roics_institucionales.get(ticker)
         
@@ -338,19 +327,22 @@ def modulo_5_startups_fed(pe_nvda, df_spcx, df_ipo, df_fred):
 
     if not df_fred.empty:
         try:
-            # El nuevo módulo ya aplicó ffill y calculó 'Liquidez_Neta', pero recalculamos para asegurar homogeneidad estricta
+            # El nuevo módulo asegura que existe 'Liquidez_Neta' y las columnas base
             df_fred = df_fred.fillna(method='ffill').fillna(0)
             df_fred['Liquidez_Neta'] = df_fred.get('WALCL', 0) - df_fred.get('WTREGEN', 0) - df_fred.get('RRPONTSYD', 0)
             
-            if not df_fred['Liquidez_Neta'].empty:
+            if not df_fred.empty and 'Liquidez_Neta' in df_fred.columns:
                 ema_liq = df_fred['Liquidez_Neta'].ewm(span=200, adjust=False).mean()
-                ultima_liq = df_fred['Liquidez_Neta'].iloc[-1]
-                ultima_ema_liq = ema_liq.iloc[-1]
-                
-                if ultima_liq < ultima_ema_liq and pe_nvda >= 35:
-                    puntos += 2.5; detalle.append(f"Liquidez FED Contrayéndose ({ultima_liq:.0f} < EMA {ultima_ema_liq:.0f}) y PE NVDA >=35x: +2.5 pt")
+                if not ema_liq.empty:
+                    ultima_liq = df_fred['Liquidez_Neta'].iloc[-1]
+                    ultima_ema_liq = ema_liq.iloc[-1]
+                    
+                    if ultima_liq < ultima_ema_liq and pe_nvda >= 35:
+                        puntos += 2.5; detalle.append(f"Liquidez FED Contrayéndose ({ultima_liq:.0f} < EMA {ultima_ema_liq:.0f}) y PE NVDA >=35x: +2.5 pt")
+                    else:
+                        detalle.append("Liquidez FED Sana o PE NVDA < 35x: +0.0 pt")
                 else:
-                    detalle.append("Liquidez FED Sana o PE NVDA < 35x: +0.0 pt")
+                    detalle.append("Serie EMA Liquidez vacía: +0.0 pt")
                     
                 if not df_ipo.empty:
                     max_ipo = df_ipo['Close'].max()
@@ -452,7 +444,6 @@ def main():
         roic_msft = obtener_roic_ttm("MSFT")
         diccio_roics = {"META": roic_meta, "AMZN": roic_amzn, "GOOG": roic_goog, "MSFT": roic_msft}
         
-        # Uso del nuevo módulo de descarga directa de la FRED
         df_fred = descargar_datos_fred()
 
     ptos_m1, det_m1 = modulo_1_semiconductores(pe_nvda, pe_amd)
