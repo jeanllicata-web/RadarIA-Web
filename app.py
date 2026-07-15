@@ -194,36 +194,50 @@ def analizar_modulo1_valoracion(data):
     pe_amd = data["AMD"].get("trailing_pe_used", 0.0)
     pe_intel = data["INTC"].get("trailing_pe_used", 0.0)
     
-    if pe_nvda < 25: puntos += 0.0; detalles.append("🟢 Trailing P/E NVDA < 25x: Suelo conservador.")
-    elif 25 <= pe_nvda < 30: pontos += 0.5; detalles.append("🟢 Trailing P/E NVDA 25-30x: Zona de confort.")
-    elif 30 <= pe_nvda < 35: pontos += 1.5; detalles.append("🟡 Trailing P/E NVDA 30-35x: Sector caro.")
-    elif 35 <= pe_nvda < 40: pontos += 2.0; detalles.append("🟠 Trailing P/E NVDA 35-40x: Carísima (Riesgo técnico).")
-    else: puntos += 4.0; detalles.append("🔴 Trailing P/E NVDA >= 40x: Burbuja desatada.")
+    if pe_nvda < 25: 
+        puntos += 0.0
+        detalles.append("🟢 Trailing P/E NVDA < 25x: Suelo conservador.")
+    elif 25 <= pe_nvda < 30: 
+        puntos += 0.5
+        detalles.append("🟢 Trailing P/E NVDA 25-30x: Zona de confort.")
+    elif 30 <= pe_nvda < 35: 
+        puntos += 1.5
+        detalles.append("🟡 Trailing P/E NVDA 30-35x: Sector caro.")
+    elif 35 <= pe_nvda < 40: 
+        puntos += 2.0
+        detalles.append("🟠 Trailing P/E NVDA 35-40x: Carísima (Riesgo técnico).")
+    else: 
+        puntos += 4.0
+        detalles.append("🔴 Trailing P/E NVDA >= 40x: Burbuja desatada.")
     
     if pe_nvda > 0:
         ratio_div = pe_amd / pe_nvda
         if pe_nvda < 40 and ratio_div > 1.5:
-            pontos += 2.0; detalles.append("🔴 Alerta: Especulación extrema en rezagados (AMD) respecto al líder.")
+            puntos += 2.0
+            detalles.append("🔴 Alerta: Especulación extrema en rezagados (AMD) respecto al líder.")
         elif pe_nvda >= 40 and ratio_div > 1.0:
-            pontos += 1.5; detalles.append("🔴 Alerta: Burbuja de arrastre colectivo extremo.")
+            puntos += 1.5
+            detalles.append("🔴 Alerta: Burbuja de arrastre colectivo extremo.")
         elif pe_nvda < 25 and ratio_div > 1.5:
-            pontos += 1.5; detalles.append("🟠 Alerta: Minoristas atrapados en segundas marcas mientras NVDA capitula.")
+            puntos += 1.5
+            detalles.append("🟠 Alerta: Minoristas atrapados en segundas marcas mientras NVDA capitula.")
             
-    return pontos, detalles, f"**Trailing P/E (TTM) NVDA:** {pe_nvda:.1f}x | **Trailing P/E (TTM) AMD:** {pe_amd:.1f}x | **Trailing P/E (TTM) INTC:** {pe_intel:.1f}x"
+    return puntos, detalles, f"**Trailing P/E (TTM) NVDA:** {pe_nvda:.1f}x | **Trailing P/E (TTM) AMD:** {pe_amd:.1f}x | **Trailing P/E (TTM) INTC:** {pe_intel:.1f}x"
 
 def analizar_modulo2_ciclo_fisico(data, nvda_pe):
     puntos = 0.0
     detalles = []
     metricas = ""
     mu_data = data.get("MU", {}).get("hist_3y")
-    kospi_data = data.get("^KS11", {}).get("hist_3y")
+    kospi_data = get("KOSPI", {}).get("hist_3y")
     
     if mu_data is not None and not mu_data.empty and len(mu_data) >= 200:
         precio_actual_mu = mu_data['Close'].iloc[-1]
         ema_200_mu = mu_data['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
         metricas += f"**MU Precio:** ${precio_actual_mu:.2f} vs **EMA 200:** ${ema_200_mu:.2f} | "
         if precio_actual_mu < ema_200_mu and nvda_pe >= 30:
-            pontos += 2.0; detalles.append("🔴 Alerta Crítica: MU bajo EMA 200 con P/E NVDA >= 30x. Anticipa acumulación de inventarios y deflación de márgenes.")
+            puntos += 2.0
+            detalles.append("🔴 Alerta Crítica: MU bajo EMA 200 con P/E NVDA >= 30x. Anticipa acumulación de inventarios y deflación de márgenes.")
         elif precio_actual_mu < ema_200_mu:
             detalles.append("🟡 MU debilucho, pero contexto de valoración de NVDA no es de riesgo extremo.")
         else:
@@ -236,10 +250,11 @@ def analizar_modulo2_ciclo_fisico(data, nvda_pe):
         ema_200_kospi = kospi_data['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
         metricas += f"**KOSPI Precio:** {precio_actual_kospi:.2f} vs **EMA 200:** {ema_200_kospi:.2f}"
         if precio_actual_kospi < ema_200_kospi and nvda_pe >= 35:
-            puntos += 1.5; detalles.append("🔴 Alerta: Debilidad industrial en Asia (KOSPI < EMA) mientras NVDA está en burbuja.")
+            puntos += 1.5
+            detalles.append("🔴 Alerta: Debilidad industrial en Asia (KOSPI < EMA) mientras NVDA está en burbuja.")
     else:
         detalles.append("⚪ Datos históricos insuficientes para calcular EMA 200 del KOSPI.")
-    return pontos, detalles, metricas
+    return puntos, detalles, metricas
 
 def analizar_modulo3_motor_corporativo(data, nvda_pe):
     puntos = 0.0
@@ -266,31 +281,28 @@ def analizar_modulo3_motor_corporativo(data, nvda_pe):
             invested_capital = equity + total_debt - cash
             roic = nopat / invested_capital if invested_capital > 0 else 0
             roics.append(roic)
-            
-            registrar_auditoria(f"{ticker} Operating Income", "API yfinance (quarterly_financials)", "Éxito 200", f"${ebit/1e9:.2f}B")
-            registrar_auditoria(f"{ticker} Equity", "API yfinance (quarterly_balance_sheet)", "Éxito 200", f"${equity/1e9:.2f}B")
-            registrar_auditoria(f"{ticker} Total Debt", "API yfinance (quarterly_balance_sheet)", "Éxito 200", f"${total_debt/1e9:.2f}")
-            
-        except Exception as e:
+        except Exception:
             roic = 0.22 
             roics.append(roic)
-            registrar_auditoria(f"{ticker} Estados Financieros", "API yfinance (quarterly_financials)", "Error Crítico", str(e))
         
     avg_roic = np.mean(roics)
     metricas = f"**ROIC TTM Promedio Hyperscalers:** {avg_roic*100:.1f}%"
     
     if avg_roic > 0.15:
-        puntos -= 1.5; detalles.append("🟢 Motor financiero indestructible (ROIC > 15%). Inmunidad parcial activada (-1.5 pts).")
+        puntos -= 1.5
+        detalles.append("🟢 Motor financiero indestructible (ROIC > 15%). Inmunidad parcial activada (-1.5 pts).")
     else:
-        puntos += 1.5; detalles.append("🟠 Peligro de claudicación en CapEx de IA (ROIC < 15%). (+1.5 pts)")
+        puntos += 1.5
+        detalles.append("🟠 Peligro de claudicación en CapEx de IA (ROIC < 15%). (+1.5 pts)")
         
     if nvda_pe < 25:
-        puntos -= 1.0; detalles.append("🟢 Cojín CUDA activado. P/E NVDA < 25x indica zona de acumulación segura (-1.0 pts).")
+        puntos -= 1.0
+        detalles.append("🟢 Cojín CUDA activado. P/E NVDA < 25x indica zona de acumulación segura (-1.0 pts).")
         
     return puntos, detalles, metricas
 
 def analizar_modulo4_credito_privado(data, nvda_pe):
-    pontos = 0.0
+    puntos = 0.0
     detalles = []
     metricas = ""
     
@@ -311,7 +323,8 @@ def analizar_modulo4_credito_privado(data, nvda_pe):
         hyg_bizd_alert = True
         
     if hyg_bizd_alert and nvda_pe >= 30:
-        pontos += 2.0; detalles.append("🔴 Alerta: Estrés y cierre del grifo de deuda High Yield / BDCs mientras NVDA está caro.")
+        puntos += 2.0
+        detalles.append("🔴 Alerta: Estrés y cierre del grifo de deuda High Yield / BDCs mientras NVDA está caro.")
     elif hyg_bizd_alert:
         detalles.append("🟡 Crédito basura bajo EMA, pero el múltiplo de NVDA no está en zona de peligro.")
     else:
@@ -321,17 +334,19 @@ def analizar_modulo4_credito_privado(data, nvda_pe):
     if nvda_pe >= 30:
         apo_bx_cond = (apo is not None and apo['Close'].iloc[-1] < check_ema_200(apo)) or \
                       (bx is not None and bx['Close'].iloc[-1] < check_ema_200(bx))
-        kre_cond = kre is not None and kre['Close'].iloc[-1] < check_era_200(kre)
+        kre_cond = kre is not None and kre['Close'].iloc[-1] < check_ema_200(kre)
         
         if apo_bx_cond and kre_cond:
             private_bank_alert = True
-            pontos += 2.0; detalles.append("🔴 Alerta Sistémica: Grietas en Private Equity (APO/BX) contagiando a la Banca Regional (KRE).")
+            puntos += 2.0
+            detalles.append("🔴 Alerta Sistémica: Grietas en Private Equity (APO/BX) contagiando a la Banca Regional (KRE).")
             
-    if not private_bank_alert and not hyg_bizd_alert: metricas = "✅ Estable"
-    return pontos, detalles, metricas
+    if not private_bank_alert and not hyg_bizd_alert: 
+        metricas = "✅ Estable"
+    return puntos, detalles, metricas
 
 def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
-    # CORRECCIÓN DEFINITIVA: 'puntos' por 'puntos' (Error típico de fatiga)
+    # CORRECCIÓN DEFINITIVA: Uso estricto de 'puntos'
     puntos = 0.0
     detalles = []
     metricas = ""
@@ -342,7 +357,8 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
         ratio_inflacion = spcx_price / 80.0
         metricas += f"**SPCX:** ${spcx_price:.2f} (Ratio Inflación: {ratio_inflacion:.1f}x) | "
         if ratio_inflacion > 1.5:
-            puntos += 2.0; detalles.append("🔴 Alerta: Euforia insostenible en startups privadas (SPCX > $120).")
+            puntos += 2.0
+            detalles.append("🔴 Alerta: Euforia insostenible en startups privadas (SPCX > $120).")
         else:
             detalles.append("🟢 Valoración de startups privadas (SPCX) contenida.")
             
@@ -362,7 +378,8 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
         
         if ema_liq is not None:
             if liq_actual < ema_liq and nvda_pe >= 35:
-                puntos += 2.5; detalles.append("🔴 Alerta Crítica: Estrangulamiento monetario soberano (Liquidez < EMA 200) con NVDA en burbuja.")
+                puntos += 2.5
+                detalles.append("🔴 Alerta Crítica: Estrangulamiento monetario soberano (Liquidez < EMA 200) con NVDA en burbuja.")
             elif liq_actual < ema_liq:
                 detalles.append("🟡 La FRED está drenando liquidez, pero las valoraciones de IA no están en máximo extremo.")
                 
@@ -373,12 +390,13 @@ def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
             walcl_yoy = (walcl.iloc[-1] / walcl.iloc[-52]) - 1 if len(walcl) >= 52 else 0
             
             if (ipo_actual / ipo_max) < 0.70 and walcl_yoy > 0.02:
-                # CORRECCIÓN DEFINITIVA: 'pontos' por 'puntos'
-                puntos += 1.5; detalles.append("🚨 ALERTA CRÍTICA: Capitulación del minorista (IPO -30%) rescatada por inyección de la FED (>2% YoY). Socializando pérdidas.")
+                # CORRECCIÓN DEFINITIVA: Uso estricto de 'puntos' por 'puntos'
+                puntos += 1.5
+                detalles.append("🚨 ALERTA CRÍTICA: Capitulación del minorista (IPO -30%) rescatada por inyección de la FED (>2% YoY). Socializando pérdidas.")
     else:
         detalles.append("⚪ No se pudieron obtener los datos de la FRED para analizar liquidez.")
         
-    return pontos, detalles, metricas
+    return puntos, detalles, metricas
 
 def generar_sintesis_global(score, raw, d1, d2, d3, d4, d5, nvda_pe):
     texto = f"**Análisis Dinámico para Trailing P/E NVDA actual: {nvda_pe:.1f}x | Puntuación Cruda: {raw:.1f}**\n\n"
@@ -495,7 +513,7 @@ def main():
         st.markdown(m5)
         st.info("💡 **Lógica Termodinámica de Liquidez:** Las startups operan como agujeros negros que destruyen el efectivo del sistema. El ETF SPCX (SpaceX proxy) a $80 representa su valor industrial real; cualquier precio por encima es inflación especulativa pura. A nivel macro, la única forma de que una burbuja de esta magnitud no colapse es mediante la inyección de Liquidez Neta de la Reserva Federal (Balance Total - Tesoro - Repos). Si el minorista capitula (IPO -30%) y la FED inyecta dinero de emergencia (>2% expansión), estás presenciando la socialización de las pérdidas de los fondos de venture capital.")
         for d in d5: render_detail(d)
-        st.metric("Puntos acumulados", f"{p5:.1f}")
+        st.markdown(f"<div style='margin-top: 10px;'>**Puntos acumulados:** {p5:.1f}</div>", unsafe_allow_html=True)
 
     # --- MÓDULO 6: METROLOGÍA Y TRAZABILIDAD DE ORIGEN ---
     st.markdown("---")
@@ -528,5 +546,5 @@ def main():
     else:
         st.info("El historial se construirá y guardará automáticamente a partir de la ejecución de hoy.")
 
-if __name__ == "__main__":
+if __name__ "__main__":
     main()
