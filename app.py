@@ -546,5 +546,5 @@ def main():
     else:
         st.info("El historial se construirá y guardará automáticamente a partir de la ejecución de hoy.")
 
-if __name__ "__main__":
+if __name__ == "__main__":
     main()
