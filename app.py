@@ -101,7 +101,7 @@ def descargar_datos_fred():
         df_unificado = pd.DataFrame()
 
     if not df_unificado.empty and all(k in df_unificado.columns for k in series_ids):
-        df_unificado['Liquidez_Neta'] = df_unificado['WALCL'] - df_unificado['WTREGEN'] - df_unificado['RRPONTSYD']
+        df_unificado['Liquidez_Neta'] = df_unificado['walcl'] - df_unificado['wtregen'] - df_unificado['rrpontsyd']
     else:
         # Fallback de emergencia solo si la web del gobierno de EE.UU. se cae por completo
         df_unificado = pd.DataFrame(index=[pd.Timestamp.now()])
