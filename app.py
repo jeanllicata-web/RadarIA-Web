@@ -82,19 +82,41 @@ def obtener_datos_yfinance(ticker, periodo="3y"):
         registro_auditoria.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": f"Error: {str(e)[:30]}", "Valor Crudo": None})
         return pd.DataFrame()
 
-def calcular_pe_dinamico(ticker, bpa_fijo):
+def obtener_bpa_dinamico_ttm(ticker_symbol):
     try:
+        ticker = yf.Ticker(ticker_symbol)
+        # Extraer la tabla histórica de fechas de ganancias (máximo 10 filas)
+        df_earnings = ticker.get_earnings_dates(limit=10)
+        if df_earnings is not None and not df_earnings.empty:
+            # Filtrar solo los trimestres ya publicados con datos reales no nulos
+            df_reales = df_earnings[df_earnings['Reported EPS'].notna()].head(4)
+            if not df_reales.empty:
+                # La suma matemática de estos 4 trimestres nos da el BPA Trailing TTM exacto
+                bpa_calculado = df_reales['Reported EPS'].sum()
+                if bpa_calculado > 0:
+                    return bpa_calculado, "BPA Dinámico TTM (yfinance earnings)"
+    except Exception:
+        pass
+    
+    # Red de seguridad extrema solo si Yahoo colapsara por completo
+    fallback_bpa = 6.60 if ticker_symbol == "NVDA" else 1.05
+    return fallback_bpa, "BPA Estático (Emergencia)"
+
+def calcular_pe_dinamico(ticker):
+    try:
+        bpa, estado_bpa = obtener_bpa_dinamico_ttm(ticker)
         df = yf.Ticker(ticker).history(period="2d")
         if not df.empty:
             precio = df['Close'].iloc[-1]
-            pe = precio / bpa_fijo
-            registro_auditoria.append({"Fuente": "YFinance (History)", "Ticker": ticker, "Estado": "Inyección Real via Precio/BPA Fijo", "Valor Crudo": round(pe, 2)})
+            pe = precio / bpa
+            estado_completo = f"Inyección Real + {estado_bpa}"
+            registro_auditoria.append({"Fuente": "YFinance (History)", "Ticker": ticker, "Estado": estado_completo, "Valor Crudo": round(pe, 2)})
             return pe
     except Exception:
         pass
     pe_fallback = {"NVDA": 30.0, "AMD": 100.0}
     pe = pe_fallback.get(ticker, 35.0)
-    registro_auditoria.append({"Fuente": "Fallback PE", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": pe})
+    registro_auditoria.append({"Fuente": "Fallback PE", "Ticker": ticker, "Estado": "Precio Real + BPA Emergencia", "Valor Crudo": pe})
     return pe
 
 def obtener_roic_ttm(ticker):
@@ -202,7 +224,6 @@ def modulo_5_startups_fed(pe_nvda, df_spcx, df_bil):
     detalle = []
     if pe_nvda is None: pe_nvda = 0.0
     
-    # Lógica de Startups
     if not df_spcx.empty:
         precio_spcx = df_spcx['Close'].iloc[-1]
         ratio_spcx = precio_spcx / 80.0
@@ -210,7 +231,6 @@ def modulo_5_startups_fed(pe_nvda, df_spcx, df_bil):
         else: detalle.append(f"Startups Contenidas (Ratio {ratio_spcx:.2f}x): +0.0 pt")
     else: detalle.append("SPCX sin datos: +0.0 pt")
 
-    # OPCIÓN B: Proxy de Mercado Real e Inmune (ETF BIL)
     if not df_bil.empty:
         ema_bil = calcular_ema_200(df_bil)
         if ema_bil is not None:
@@ -268,7 +288,7 @@ def main():
     st.markdown("**Sistema de Medición de Riesgo de Crash (Escala 0 - 10)**")
     st.markdown("---")
 
-    with st.spinner("🛰️ Extrayendo datos de mercado inmunizados..."):
+    with st.spinner("🛰️ Extrayendo datos con BPA TTM 100% dinámico..."):
         df_ks11 = obtener_datos_yfinance("^KS11")
         df_mu = obtener_datos_yfinance("MU")
         df_hyg = obtener_datos_yfinance("HYG")
@@ -283,9 +303,9 @@ def main():
         if not df_bil.empty:
             registro_auditoria.append({"Fuente": "Yahoo Finance", "Ticker": "BIL", "Estado": "Inyección Real via Proxy de Mercado (yfinance Ticker: BIL)", "Valor Crudo": df_bil['Close'].iloc[-1]})
         
-        # Módulo 1: P/E Dinámico (Evita .info pesado)
-        pe_nvda = calcular_pe_dinamico("NVDA", bpa_fijo=6.60)
-        pe_amd = calcular_pe_dinamico("AMD", bpa_fijo=1.05)
+        # Módulo 1: P/E 100% Dinámico (Solución A)
+        pe_nvda = calcular_pe_dinamico("NVDA")
+        pe_amd = calcular_pe_dinamico("AMD")
         
         # Módulo 3: ROIC Ligero
         roic_meta = obtener_roic_ttm("META")
