@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import requests
-import io
 from github import Github
+import io
 from datetime import datetime
 
 # ==========================================
@@ -24,7 +24,7 @@ def inyectar_css():
         h1, h2, h3, h4, h5, h6, p, span, div, li, label {
             color: #FFFFFF !important;
         }
-        .stAlert {
+        .stAlert, .stCaption {
             background-color: #111111 !important;
             color: #FFFFFF !important;
             border-left: 4px solid #00FF66 !important;
@@ -65,54 +65,50 @@ def inyectar_css():
     st.markdown(css, unsafe_allow_html=True)
 
 # ==========================================
-# MÓDULO FRED (REPARACIÓN TOTAL ANTI-KEYERROR)
+# MÓDULO FRED SUSTITUIDO POR ALPHA VANTAGE
 # ==========================================
 def descargar_datos_fred():
-    series_ids = ["WALCL", "WTREGEN", "RRPONTSYD"]
-    dfs = {}
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    
-    for s_id in series_ids:
-        # Nota de producción: Se ajusta la URL al endpoint real del CSV de la FRED para que el parser funcione
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={s_id}"
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            if response.status_code == 200:
-                df = pd.read_csv(io.StringIO(response.text))
-                df.columns = df.columns.str.lower() # Fuerza todo a minúsculas ('date', 'walcl', etc.)
-                if 'date' in df.columns:
-                    df['date'] = pd.to_datetime(df['date'], errors='coerce')
-                    df.set_index('date', inplace=True)
-                    # Renombrar la columna de datos a mayúsculas para mantener consistencia con el resto del script
-                    df.columns = [s_id]
-                    dfs[s_id] = df
-                    registro_metrológico.append({"Fuente": "FRED (CSV Oficial)", "Ticker": s_id, "Estado": "Real / En tiempo real", "Valor Crudo": df[s_id].iloc[-1]})
-            else:
-                raise Exception(f"HTTP {response.status_code}")
-        except Exception as e:
-            dfs[s_id] = pd.DataFrame(columns=[s_id])
-            registro_metrológico.append({"Fuente": "FRED (CSV Oficial)", "Ticker": s_id, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": None})
-            
     try:
-        # Unificación limpia indexada por fechas reales
-        df_unificado = dfs["WALCL"].join(dfs["WTREGEN"], how='outer').join(dfs["RRPONTSYD"], how='outer')
-        df_unificado = df_unificado.ffill().bfill().dropna()
-    except Exception:
-        df_unificado = pd.DataFrame()
-
-    if not df_unificado.empty and all(k in df_unificado.columns for k in series_ids):
-        df_unificado['Liquidez_Neta'] = df_unificado['walcl'] - df_unificado['wtregen'] - df_unificado['rrpontsyd']
-    else:
-        # Fallback de emergencia solo si la web del gobierno de EE.UU. se cae por completo
-        df_unificado = pd.DataFrame(index=[pd.Timestamp.now()])
-        df_unificado['WALCL'], df_unificado['WTREGEN'], df_unificado['RRPONTSYD'] = 6800000.0, 700000.0, 100000.0
-        df_unificado['Liquidez_Neta'] = 6000000.0
-        registro_metrológico.append({"Fuente": "FRED (Fallback Maestro)", "Ticker": "Liquidez_Neta", "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": 6000000.0})
+        api_key = st.secrets.get("AV_API_KEY")
+        if not api_key:
+            raise ValueError("API Key no encontrada en secretos")
+            
+        # Endpoint de liquidez base macroeconómica en Alpha Vantage (M2 como proxy robusto)
+        url = f"https://www.alphavantage.co/query?function=MONEY_SUPPLY&interval=monthly&apikey={api_key}"
         
-    return df_unificado
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            json_data = response.json()
+            if "data" in json_data and len(json_data["data"]) > 0:
+                df = pd.DataFrame(json_data["data"])
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+                df.sort_index(inplace=True)
+                
+                # Estandarización de columnas para la lógica matemática del Módulo 5
+                df['WALCL'] = pd.to_numeric(df['value'], errors='coerce') * 1000 
+                df['WTREGEN'] = 0.0
+                df['RRPONTSYD'] = 0.0
+                df['Liquidez_Neta'] = df['WALCL'] - df['WTREGEN'] - df['RRPONTSYD']
+                
+                df = df[['WALCL', 'WTREGEN', 'RRPONTSYD', 'Liquidez_Neta']]
+                df = df.ffill().bfill().dropna()
+                
+                if not df.empty:
+                    registro_metrológico.append({"Fuente": "Alpha Vantage", "Ticker": "Liquidez_Neta", "Estado": "Inyección Real via Alpha Vantage", "Valor Crudo": df['Liquidez_Neta'].iloc[-1]})
+                    return df
+        raise Exception("Sin datos en respuesta JSON o límite de API alcanzado")
+        
+    except Exception as e:
+        registro_metrológico.append({"Fuente": "Alpha Vantage", "Ticker": "Liquidez_Neta", "Estado": f"Plan de Contingencia / Proxy: {str(e)[:30]}", "Valor Crudo": None})
+        # Fallback de emergencia si la API falla o agota límites
+        df_fallback = pd.DataFrame(index=[pd.Timestamp.now()])
+        df_fallback['WALCL'], df_fallback['WTREGEN'], df_fallback['RRPONTSYD'] = 6800000.0, 700000.0, 100000.0
+        df_fallback['Liquidez_Neta'] = 6000000.0
+        return df_fallback
 
 # ==========================================
-# FUNCIONES AUXILIARES DE DATOS (CON FALLBACKS)
+# FUNCIONES AUXILIARES DE DATOS
 # ==========================================
 def obtener_datos_yfinance(ticker, periodo="3y"):
     try:
@@ -120,17 +116,12 @@ def obtener_datos_yfinance(ticker, periodo="3y"):
         if not df.empty:
             df['Close'] = df['Close'].ffill().bfill()
             df = df.dropna(subset=['Close'])
-            
             if not df.empty:
                 valor = df['Close'].iloc[-1]
                 registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(valor, 2)})
                 return df
-            else:
-                registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": None})
-                return pd.DataFrame()
-        else:
-            registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Vacío", "Valor Crudo": None})
-            return pd.DataFrame()
+        registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": None})
+        return pd.DataFrame()
     except Exception as e:
         registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": f"Error: {str(e)[:30]}", "Valor Crudo": None})
         return pd.DataFrame()
@@ -143,19 +134,15 @@ def obtener_bpa_dinamico(ticker_symbol):
             df_reales = df_earnings[df_earnings['Reported EPS'].notna()].head(4)
             if not df_reales.empty:
                 bpa_ttm = df_reales['Reported EPS'].sum()
-                if bpa_ttm > 0:
-                    return bpa_ttm
+                if bpa_ttm > 0: return bpa_ttm
         return None
-    except Exception:
-        return None
+    except Exception: return None
 
 def obtener_pe(ticker):
     try:
         tk = yf.Ticker(ticker)
         pe = tk.info.get("trailingPE")
-        
         if pe is None or pe <= 0 or pe != pe:
-            # Cálculo dinámico continuo
             bpa = obtener_bpa_dinamico(ticker)
             if bpa:
                 precio = tk.info.get("currentPrice") or tk.info.get("previousClose")
@@ -163,16 +150,12 @@ def obtener_pe(ticker):
                     pe = precio / bpa
                     registro_metrológico.append({"Fuente": "YFinance (BPA Dinámico)", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(pe, 2)})
                     return pe
-            
-            # Fallback estático de emergencia
             valores_base = {"NVDA": 30.0, "AMD": 100.0}
             pe = valores_base.get(ticker, 35.0)
             registro_metrológico.append({"Fuente": "YFinance (Fallback)", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": pe})
             return pe
-        else:
-            registro_metrológico.append({"Fuente": "Yahoo Finance (Info)", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(pe, 2)})
-            return pe
-            
+        registro_metrológico.append({"Fuente": "Yahoo Finance (Info)", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(pe, 2)})
+        return pe
     except Exception as e:
         valores_base = {"NVDA": 30.0, "AMD": 100.0}
         pe = valores_base.get(ticker, 35.0)
@@ -182,33 +165,24 @@ def obtener_pe(ticker):
 def obtener_roic_ttm(ticker):
     try:
         tk = yf.Ticker(ticker)
-        # Extracción ligera para evitar bloqueos de IP
         roe = tk.info.get("returnOnEquity")
         roa = tk.info.get("returnOnAssets")
-        
         if roe is not None and roa is not None and roe > 0 and roa > 0:
-            # Estimación dinámica aproximada: (ROE + ROA) / 1.5
             roic = ((roe + roa) / 1.5) * 100
             registro_metrológico.append({"Fuente": "YFinance (Lightweight)", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(roic, 2)})
             return roic
-        else:
-            raise ValueError("ROE/ROA inválidos o nulos")
-            
+        raise ValueError("ROE/ROA inválidos")
     except Exception as e:
-        # Fallback de contingencia con datos Reportados a la SEC
         roics_sec = {"META": 23.9, "AMZN": 18.5, "GOOG": 24.0, "MSFT": 25.1}
         roic_fallback = roics_sec.get(ticker)
-        
         if roic_fallback is not None:
             registro_metrológico.append({"Fuente": "Contingencia SEC", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": roic_fallback})
             return roic_fallback
-        else:
-            registro_metrológico.append({"Fuente": "Contingencia SEC", "Ticker": ticker, "Estado": "Sin dato", "Valor Crudo": None})
-            return None
+        registro_metrológico.append({"Fuente": "Contingencia SEC", "Ticker": ticker, "Estado": "Sin dato", "Valor Crudo": None})
+        return None
 
 def calcular_ema_200(df):
-    if df.empty:
-        return None
+    if df.empty: return None
     return df['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
 
 # ==========================================
@@ -217,178 +191,117 @@ def calcular_ema_200(df):
 def modulo_1_semiconductores(pe_nvda, pe_amd):
     puntos = 0.0
     detalle = []
-    
     if pe_nvda is None: pe_nvda = 999.0
-        
-    if pe_nvda < 25:
-        puntos += 0.0; detalle.append(f"PE NVDA {pe_nvda:.1f}x (<25x): +0.0 pt")
-    elif 25 <= pe_nvda < 30:
-        puntos += 0.5; detalle.append(f"PE NVDA {pe_nvda:.1f}x (25-30x): +0.5 pt")
-    elif 30 <= pe_nvda < 35:
-        puntos += 1.5; detalle.append(f"PE NVDA {pe_nvda:.1f}x (30-35x): +1.5 pt")
-    elif 35 <= pe_nvda < 40:
-        puntos += 2.0; detalle.append(f"PE NVDA {pe_nvda:.1f}x (35-40x): +2.0 pt")
-    else:
-        puntos += 4.0; detalle.append(f"PE NVDA {pe_nvda:.1f}x (>=40x): +4.0 pt")
+    if pe_nvda < 25: puntos += 0.0; detalle.append(f"PE NVDA {pe_nvda:.1f}x (<25x): +0.0 pt")
+    elif 25 <= pe_nvda < 30: puntos += 0.5; detalle.append(f"PE NVDA {pe_nvda:.1f}x (25-30x): +0.5 pt")
+    elif 30 <= pe_nvda < 35: puntos += 1.5; detalle.append(f"PE NVDA {pe_nvda:.1f}x (30-35x): +1.5 pt")
+    elif 35 <= pe_nvda < 40: puntos += 2.0; detalle.append(f"PE NVDA {pe_nvda:.1f}x (35-40x): +2.0 pt")
+    else: puntos += 4.0; detalle.append(f"PE NVDA {pe_nvda:.1f}x (>=40x): +4.0 pt")
 
     if pe_amd and pe_amd > 0 and pe_nvda > 0:
         ratio = pe_amd / pe_nvda
-        if pe_nvda < 40 and ratio > 1.5:
-            puntos += 2.0; detalle.append(f"Divergencia (Ratio {ratio:.2f} > 1.5x y NVDA <40x): +2.0 pt")
-        elif pe_nvda >= 40 and ratio > 1.0:
-            puntos += 1.5; detalle.append(f"Divergencia (Ratio {ratio:.2f} > 1.0x y NVDA >=40x): +1.5 pt")
-        elif pe_nvda < 25 and ratio > 1.5:
-            puntos += 1.5; detalle.append(f"Divergencia Extrema (Ratio {ratio:.2f} > 1.5x y NVDA <25x): +1.5 pt")
-        else:
-            detalle.append(f"Divergencia controlada (Ratio {ratio:.2f}): +0.0 pt")
-    else:
-        detalle.append("PE AMD no disponible para Ratio: +0.0 pt")
-
+        if pe_nvda < 40 and ratio > 1.5: puntos += 2.0; detalle.append(f"Divergencia (Ratio {ratio:.2f} > 1.5x y NVDA <40x): +2.0 pt")
+        elif pe_nvda >= 40 and ratio > 1.0: puntos += 1.5; detalle.append(f"Divergencia (Ratio {ratio:.2f} > 1.0x y NVDA >=40x): +1.5 pt")
+        elif pe_nvda < 25 and ratio > 1.5: puntos += 1.5; detalle.append(f"Divergencia Extrema (Ratio {ratio:.2f} > 1.5x y NVDA <25x): +1.5 pt")
+        else: detalle.append(f"Divergencia controlada (Ratio {ratio:.2f}): +0.0 pt")
+    else: detalle.append("PE AMD no disponible para Ratio: +0.0 pt")
     return puntos, detalle
 
 def modulo_2_ciclo_fisico(pe_nvda, df_ks11, df_mu):
     puntos = 0.0
     detalle = []
     if pe_nvda is None: pe_nvda = 0.0
-    
     ema_ks11 = calcular_ema_200(df_ks11)
     if ema_ks11 is not None and not df_ks11.empty:
         precio_ks11 = df_ks11['Close'].iloc[-1]
-        if precio_ks11 < ema_ks11 and pe_nvda >= 35:
-            puntos += 1.5; detalle.append(f"KOSPI ({precio_ks11:.0f}) < EMA200 ({ema_ks11:.0f}) y PE NVDA >=35x: +1.5 pt")
-        else:
-            detalle.append("KOSPI por encima de EMA200 o PE NVDA < 35x: +0.0 pt")
-    else:
-        detalle.append("Datos KOSPI insuficientes para EMA200: +0.0 pt")
+        if precio_ks11 < ema_ks11 and pe_nvda >= 35: puntos += 1.5; detalle.append(f"KOSPI ({precio_ks11:.0f}) < EMA200 ({ema_ks11:.0f}) y PE NVDA >=35x: +1.5 pt")
+        else: detalle.append("KOSPI por encima de EMA200 o PE NVDA < 35x: +0.0 pt")
+    else: detalle.append("Datos KOSPI insuficientes para EMA200: +0.0 pt")
 
     ema_mu = calcular_ema_200(df_mu)
     if ema_mu is not None and not df_mu.empty:
         precio_mu = df_mu['Close'].iloc[-1]
-        if precio_mu < ema_mu and pe_nvda >= 30:
-            puntos += 2.0; detalle.append(f"MICRON ({precio_mu:.2f}) < EMA200 ({ema_mu:.2f}) y PE NVDA >=30x: +2.0 pt")
-        else:
-            detalle.append("MICRON por encima de EMA200 o PE NVDA < 30x: +0.0 pt")
-    else:
-        detalle.append("Datos MICRON insuficientes para EMA200: +0.0 pt")
-
+        if precio_mu < ema_mu and pe_nvda >= 30: puntos += 2.0; detalle.append(f"MICRON ({precio_mu:.2f}) < EMA200 ({ema_mu:.2f}) y PE NVDA >=30x: +2.0 pt")
+        else: detalle.append("MICRON por encima de EMA200 o PE NVDA < 30x: +0.0 pt")
+    else: detalle.append("Datos MICRON insuficientes para EMA200: +0.0 pt")
     return puntos, detalle
 
 def modulo_3_motor_corporativo(pe_nvda, diccio_roics):
     puntos = 0.0
     detalle = []
     if pe_nvda is None: pe_nvda = 999.0
-    
     roics_validos = [v for v in diccio_roics.values() if v is not None]
     if roics_validos:
         promedio_roic = sum(roics_validos) / len(roics_validos)
-        if promedio_roic > 15:
-            puntos -= 1.5; detalle.append(f"ROIC Promedio Magistral ({promedio_roic:.1f}% > 15%): -1.5 pt")
-        else:
-            puntos += 1.5; detalle.append(f"ROIC Promedio Débil ({promedio_roic:.1f}% <= 15%): +1.5 pt")
-    else:
-        detalle.append("ROICs no calculables (se suma riesgo neutral): +0.0 pt")
+        if promedio_roic > 15: puntos -= 1.5; detalle.append(f"ROIC Promedio Magistral ({promedio_roic:.1f}% > 15%): -1.5 pt")
+        else: puntos += 1.5; detalle.append(f"ROIC Promedio Débil ({promedio_roic:.1f}% <= 15%): +1.5 pt")
+    else: detalle.append("ROICs no calculables (se suma riesgo neutral): +0.0 pt")
 
-    if pe_nvda < 25:
-        puntos -= 1.0; detalle.append(f"Amortiguador CUDA activado (PE NVDA {pe_nvda:.1f}x < 25x): -1.0 pt")
-    else:
-        detalle.append("Amortiguador CUDA desactivado: +0.0 pt")
-
+    if pe_nvda < 25: puntos -= 1.0; detalle.append(f"Amortiguador CUDA activado (PE NVDA {pe_nvda:.1f}x < 25x): -1.0 pt")
+    else: detalle.append("Amortiguador CUDA desactivado: +0.0 pt")
     return puntos, detalle
 
 def modulo_4_credito_privado(pe_nvda, df_hyg, df_bizd, df_apo, df_bx, df_kre):
     puntos = 0.0
     detalle = []
     if pe_nvda is None: pe_nvda = 0.0
-    
-    ema_hyg = calcular_ema_200(df_hyg)
-    ema_bizd = calcular_ema_200(df_bizd)
-    
+    ema_hyg = calcular_ema_200(df_hyg); ema_bizd = calcular_ema_200(df_bizd)
     condicion_hyg_bizd = False
     if ema_hyg is not None and not df_hyg.empty and df_hyg['Close'].iloc[-1] < ema_hyg: condicion_hyg_bizd = True
     if ema_bizd is not None and not df_bizd.empty and df_bizd['Close'].iloc[-1] < ema_bizd: condicion_hyg_bizd = True
+    if condicion_hyg_bizd and pe_nvda >= 30: puntos += 2.0; detalle.append("Crédito Privado (HYG o BIZD < EMA200) y PE NVDA >=30x: +2.0 pt")
+    else: detalle.append("Crédito Privado Sano o PE NVDA < 30x: +0.0 pt")
 
-    if condicion_hyg_bizd and pe_nvda >= 30:
-        puntos += 2.0; detalle.append("Crédito Privado (HYG o BIZD < EMA200) y PE NVDA >=30x: +2.0 pt")
-    else:
-        detalle.append("Crédito Privado Sano o PE NVDA < 30x: +0.0 pt")
-
-    ema_apo = calcular_ema_200(df_apo)
-    ema_bx = calcular_ema_200(df_bx)
-    ema_kre = calcular_ema_200(df_kre)
-    
+    ema_apo = calcular_ema_200(df_apo); ema_bx = calcular_ema_200(df_bx); ema_kre = calcular_ema_200(df_kre)
     condicion_apo_bx = False
     if ema_apo is not None and not df_apo.empty and df_apo['Close'].iloc[-1] < ema_apo: condicion_apo_bx = True
     if ema_bx is not None and not df_bx.empty and df_bx['Close'].iloc[-1] < ema_bx: condicion_apo_bx = True
-        
-    condicion_kre = False
-    if ema_kre is not None and not df_kre.empty and df_kre['Close'].iloc[-1] < ema_kre: condicion_kre = True
+    condicion_kre = ema_kre is not None and not df_kre.empty and df_kre['Close'].iloc[-1] < ema_kre
 
-    if condicion_apo_bx and condicion_kre and pe_nvda >= 30:
-        puntos += 2.0; detalle.append("Stress Regional/APE (APO/BX y KRE < EMA200) y PE NVDA >=30x: +2.0 pt")
-    else:
-        detalle.append("Stress Regional/APE controlado o PE NVDA < 30x: +0.0 pt")
-
+    if condicion_apo_bx and condicion_kre and pe_nvda >= 30: puntos += 2.0; detalle.append("Stress Regional/APE (APO/BX y KRE < EMA200) y PE NVDA >=30x: +2.0 pt")
+    else: detalle.append("Stress Regional/APE controlado o PE NVDA < 30x: +0.0 pt")
     return puntos, detalle
 
 def modulo_5_startups_fed(pe_nvda, df_spcx, df_ipo, df_fred):
     puntos = 0.0
     detalle = []
     if pe_nvda is None: pe_nvda = 0.0
-    
     if not df_spcx.empty:
         precio_spcx = df_spcx['Close'].iloc[-1]
         ratio_spcx = precio_spcx / 80.0
-        if ratio_spcx > 1.5:
-            puntos += 2.0; detalle.append(f"Burbuja Startups (SPCX {precio_spcx:.2f}/80 = {ratio_spcx:.2f}x > 1.5x): +2.0 pt")
-        else:
-            detalle.append(f"Startups Contenidas (Ratio {ratio_spcx:.2f}x): +0.0 pt")
-    else:
-        detalle.append("SPCX sin datos: +0.0 pt")
+        if ratio_spcx > 1.5: puntos += 2.0; detalle.append(f"Burbuja Startups (SPCX {precio_spcx:.2f}/80 = {ratio_spcx:.2f}x > 1.5x): +2.0 pt")
+        else: detalle.append(f"Startups Contenidas (Ratio {ratio_spcx:.2f}x): +0.0 pt")
+    else: detalle.append("SPCX sin datos: +0.0 pt")
 
     if not df_fred.empty:
         try:
             if 'Liquidez_Neta' not in df_fred.columns:
                 df_fred['Liquidez_Neta'] = df_fred.get('WALCL', 0) - df_fred.get('WTREGEN', 0) - df_fred.get('RRPONTSYD', 0)
-            
             if not df_fred.empty and 'Liquidez_Neta' in df_fred.columns:
                 ema_liq = df_fred['Liquidez_Neta'].ewm(span=200, adjust=False).mean()
                 if not ema_liq.empty:
                     ultima_liq = df_fred['Liquidez_Neta'].iloc[-1]
                     ultima_ema_liq = ema_liq.iloc[-1]
-                    
-                    if ultima_liq < ultima_ema_liq and pe_nvda >= 35:
-                        puntos += 2.5; detalle.append(f"Liquidez FED Contrayéndose ({ultima_liq:.0f} < EMA {ultima_ema_liq:.0f}) y PE NVDA >=35x: +2.5 pt")
-                    else:
-                        detalle.append("Liquidez FED Sana o PE NVDA < 35x: +0.0 pt")
-                else:
-                    detalle.append("Serie EMA Liquidez vacía: +0.0 pt")
-                    
+                    if ultima_liq < ultima_ema_liq and pe_nvda >= 35: puntos += 2.5; detalle.append(f"Liquidez FED Contrayéndose ({ultima_liq:.0f} < EMA {ultima_ema_liq:.0f}) y PE NVDA >=35x: +2.5 pt")
+                    else: detalle.append("Liquidez FED Sana o PE NVDA < 35x: +0.0 pt")
+                else: detalle.append("Serie EMA Liquidez vacía: +0.0 pt")
+                
                 if not df_ipo.empty:
                     max_ipo = df_ipo['Close'].max()
                     precio_ipo = df_ipo['Close'].iloc[-1]
                     caida_ipo = ((max_ipo - precio_ipo) / max_ipo) * 100 if max_ipo > 0 else 0
-                    
                     df_walcl_w = df_fred.get('WALCL', pd.Series()).resample('W').last().dropna()
                     if not df_walcl_w.empty:
                         incr_walcl = df_walcl_w.pct_change().iloc[-1]
-                        
-                        if caida_ipo > 30 and incr_walcl > 0.02:
-                            puntos += 1.5; detalle.append(f"Fed Put Activado (IPO -{caida_ipo:.1f}% y WALCL semanal +{incr_walcl*100:.1f}%): +1.5 pt")
-                        else:
-                            detalle.append(f"Sín Fed Put (IPO -{caida_ipo:.1f}%, WALCL +{incr_walcl*100:.1f}%): +0.0 pt")
-                    else:
-                        detalle.append("WALCL sin datos semanales para Fed Put: +0.0 pt")
-                else:
-                    detalle.append("ETF IPO sin datos: +0.0 pt")
-            else:
-                detalle.append("Liquidez Neta vacía tras cálculo: +0.0 pt")
-                
+                        if caida_ipo > 30 and incr_walcl > 0.02: puntos += 1.5; detalle.append(f"Fed Put Activado (IPO -{caida_ipo:.1f}% y WALCL semanal +{incr_walcl*100:.1f}%): +1.5 pt")
+                        else: detalle.append(f"Sín Fed Put (IPO -{caida_ipo:.1f}%, WALCL +{incr_walcl*100:.1f}%): +0.0 pt")
+                    else: detalle.append("WALCL sin datos semanales para Fed Put: +0.0 pt")
+                else: detalle.append("ETF IPO sin datos: +0.0 pt")
+            else: detalle.append("Liquidez Neta vacía tras cálculo: +0.0 pt")
         except Exception as e:
-            registro_metrológico.append({"Fuente": "FRED (Cálculo)", "Ticker": "Liquidez_Neta", "Estado": f"Errorinterno: {str(e)}", "Valor Crudo": None})
-            detalle.append("Error calculando métricas FRED: +0.0 pt")
-    else:
-        detalle.append("Datos FRED completamente vacíos: +0.0 pt")
-
+            registro_metrológico.append({"Fuente": "FRED/AV (Cálculo)", "Ticker": "Liquidez_Neta", "Estado": f"Errorinterno: {str(e)}", "Valor Crudo": None})
+            detalle.append("Error calculando métricas de liquidez: +0.0 pt")
+    else: detalle.append("Datos macro completamente vacíos: +0.0 pt")
     return puntos, detalle
 
 # ==========================================
@@ -398,35 +311,24 @@ def guardar_historial_github(puntuacion):
     try:
         token = st.secrets.get("GH_PAT")
         repo_nombre = st.secrets.get("GH_REPO")
-        
-        if not token or not repo_nombre:
-            return False
-            
+        if not token or not repo_nombre: return False
         g = Github(token)
         repo = g.get_repo(repo_nombre)
         archivo_nombre = "historial_riesgo.csv"
         sha = None
         df_hist = pd.DataFrame(columns=["Fecha", "Puntuacion_Riesgo"])
-        
         try:
             contenido = repo.get_contents(archivo_nombre)
             datos_csv = contenido.decoded_content.decode('utf-8')
             df_hist = pd.read_csv(io.StringIO(datos_csv))
             sha = contenido.sha
-        except Exception:
-            pass
-            
+        except Exception: pass
         fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         nueva_fila = pd.DataFrame({"Fecha": [fecha_actual], "Puntuacion_Riesgo": [puntuacion]})
         df_hist = pd.concat([df_hist, nueva_fila], ignore_index=True)
-        
         csv_actualizado = df_hist.to_csv(index=False)
-        
-        if sha:
-            repo.update_file(archivo_nombre, f"Actualización riesgo IA {fecha_actual}", csv_actualizado, sha)
-        else:
-            repo.create_file(archivo_nombre, "Creación historial riesgo IA", csv_actualizado)
-            
+        if sha: repo.update_file(archivo_nombre, f"Actualización riesgo IA {fecha_actual}", csv_actualizado, sha)
+        else: repo.create_file(archivo_nombre, "Creación historial riesgo IA", csv_actualizado)
         return True
     except Exception as e:
         st.error(f"Error Git: {e}")
@@ -443,7 +345,7 @@ def main():
     st.markdown("**Sistema de Medición de Riesgo de Crash (Escala 0 - 10)**")
     st.markdown("---")
 
-    with st.spinner("🛰️ Extrayendo datos con tolerancia a fallos (Yahoo Finance / FRED)..."):
+    with st.spinner("🛰️ Extrayendo datos con tolerancia a fallos (Yahoo Finance / Alpha Vantage)..."):
         df_ks11 = obtener_datos_yfinance("^KS11")
         df_mu = obtener_datos_yfinance("MU")
         df_hyg = obtener_datos_yfinance("HYG")
@@ -479,12 +381,8 @@ def main():
     with col_izq:
         color_clase = "sano"
         texto_estado = "SANO 🟢"
-        if puntuacion_normalizada >= 3.0 and puntuacion_normalizada <= 6.0:
-            color_clase = "tension"
-            texto_estado = "TENSIÓN 🟡"
-        elif puntuacion_normalizada > 6.0:
-            color_clase = "peligro"
-            texto_estado = "PELIGRO DE CRASH 🔴"
+        if 3.0 <= puntuacion_normalizada <= 6.0: color_clase = "tension"; texto_estado = "TENSIÓN 🟡"
+        elif puntuacion_normalizada > 6.0: color_clase = "peligro"; texto_estado = "PELIGRO DE CRASH 🔴"
             
         st.markdown(f"<div class='{color_clase}' style='text-align:center; padding:20px; border: 2px solid #FFFFFF; border-radius:10px; background-color:#0A0A0A;'>", unsafe_allow_html=True)
         st.metric(label="NIVEL DE RIESGO", value=f"{puntuacion_normalizada:.1f} / 10.0")
@@ -494,22 +392,27 @@ def main():
     with col_der:
         with st.expander("📖 Desglose Técnico por Módulos", expanded=True):
             st.subheader("Módulo 1: Semiconductores")
+            st.caption("Foco Analítico: El hardware de diseño de microchips es cíclico. Separamos al líder real que genera caja (NVIDIA) de la pura especulación por narrativa de los rezagados (AMD, INTC) midiendo sus desviaciones de múltiplos Trailing P/E.")
             for d in det_m1: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M1: {ptos_m1:.1f} pts**")
             
             st.subheader("Módulo 2: Ciclo Físico")
+            st.caption("Foco Analítico: Las memorias RAM/HBM son commodities tecnológicas. Sus beneficios se inflan por escasez. El peligro real es la acumulación oculta de inventarios y la deflación de márgenes en Asia antes de que impacte a Wall Street.")
             for d in det_m2: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M2: {ptos_m2:.1f} pts**")
             
             st.subheader("Módulo 3: Motor Corporativo")
+            st.caption("Foco Analítico: Las Big Tech tienen balances capaces de aguantar el CapEx de IA pesado. Evaluamos el ROIC TTM real para confirmar si el motor financiero institucional sigue siendo indestructible o si hay peligro de claudicación en la compra de servidores.")
             for d in det_m3: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M3: {ptos_m3:.1f} pts**")
             
             st.subheader("Módulo 4: Crédito Privado")
+            st.caption("Foco Analítico: Las startups de IA insolventes que queman caja dependen del crédito privado para refinanciarse. Si estos vehículos de deuda sufren impagos, la insolvencia se transmite como riesgo de crédito directo a los balances de la banca regional.")
             for d in det_m4: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M4: {ptos_m4:.1f} pts**")
             
             st.subheader("Módulo 5: Startups y FED")
+            st.caption("Foco Analítico: Las mega-startups deficitarias actúan como destructores de liquidez. Si la Liquidez Neta de la Reserva Federal disminuye mientras las valoraciones privadas se inflan, se corta el oxígeno al capital riesgo.")
             for d in det_m5: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M5: {ptos_m5:.1f} pts**")
             
@@ -526,10 +429,8 @@ def main():
     if st.button("💾 Guardar Trazabilidad y Puntaje en GitHub"):
         with st.spinner("Conectando con GitHub..."):
             exito = guardar_historial_github(puntuacion_normalizada)
-            if exito:
-                st.success("✅ Historial actualizado y subido con éxito al repositorio.")
-            else:
-                st.error("❌ Fallo al subir. Revisa los secretos (GH_PAT, GH_REPO) en Streamlit.")
+            if exito: st.success("✅ Historial actualizado y subido con éxito al repositorio.")
+            else: st.error("❌ Fallo al subir. Revisa los secretos (GH_PAT, GH_REPO, AV_API_KEY) en Streamlit.")
 
 # ==========================================
 # CIERRE EXACTO
