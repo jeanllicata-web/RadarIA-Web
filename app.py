@@ -229,7 +229,7 @@ def analizar_modulo2_ciclo_fisico(data, nvda_pe):
     detalles = []
     metricas = ""
     mu_data = data.get("MU", {}).get("hist_3y")
-    kospi_data = get("KOSPI", {}).get("hist_3y")
+    kospi_data = data.get("KOSPI", {}).get("hist_3y")
     
     if mu_data is not None and not mu_data.empty and len(mu_data) >= 200:
         precio_actual_mu = mu_data['Close'].iloc[-1]
