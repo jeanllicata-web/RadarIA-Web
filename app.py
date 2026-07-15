@@ -1,550 +1,507 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import numpy as np
-import pandas_datareader.data as web
-import os
-from datetime import datetime, timedelta, date
-from git import Repo
+import yfinance as yf
+import pandas_datareader.data as pdr
+from github import Github
+import io
+from datetime import datetime
 
-st.set_page_config(
-    page_title="RadarIA Cuantitativo | Burbuja de IA",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# ==========================================
+# REGISTRO METROLÓGICO GLOBAL
+# ==========================================
+registro_metrológico = []
 
-st.markdown("""
-<style>
-    .stApp { background-color: #000000 !important; }
-    p, span, label, .stMarkdown, .stText { color: #FFFFFF !important; font-weight: 500 !important; }
-    h1, h2, h3, h4, h5, h6 { color: #FFFFFF !important; font-weight: 700 !important; }
-    div[data-testid="stBlock"], div[data-testid="element-container"] {
-        background-color: #0c0c0c !important;
-        border: 1px solid #262626 !important;
-        border-radius: 8px !important;
-    }
-    .dataframe { background-color: #0c0c0c !important; color: #FFFFFF !important; border: 1px solid #262626 !important; }
-    thead { background-color: #161b22 !important; color: #58a6ff !important; }
-    th { color: #FFFFFF !important; border-bottom: 2px solid #262626 !important; }
-    td { color: #FFFFFF !important; border-bottom: 1px solid #1a1f2e !important; }
-    tr:hover { background-color: #161b22 !important; }
-    .stAlert p { color: #FFFFFF !important; font-weight: 600 !important; }
-    .main-header {
-        text-align: center;
-        padding: 2rem 0 1rem 0;
-        background: linear-gradient(180deg, #000000 0%, #0c0c0c 100%);
-        border-bottom: 1px solid #262626;
-        margin: -2.5rem -2rem 2rem -2rem;
-        padding-top: 4rem;
-    }
-    h1 {
-        font-size: 2.8rem;
-        font-weight: 800;
-        background: linear-gradient(90deg, #58a6ff, #bc8cff);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
-    }
-    .module-box {
-        background-color: #000000 !important;
-        border-left: 4px solid #58a6ff;
-        padding: 1.5rem;
-        border-radius: 0 8px 8px 0;
-        margin-bottom: 1.5rem;
-        border-top: 1px solid #262626 !important;
-        border-right: 1px solid #262626 !important;
-        border-bottom: 1px solid #262626 !important;
-    }
-    .alert-red { border-left-color: #da3633 !important; }
-    .alert-yellow { border-left-color: #f0883e !important; }
-    .alert-green { border-left-color: #238636 !important; }
-    .audit-box { border-left-color: #bc8cff !important; }
-</style>
-""", unsafe_allow_html=True)
+# ==========================================
+# DISEÑO E INFRAESTRUCTURA (Ultra-Contraste)
+# ==========================================
+def inyectar_css():
+    css = """
+    <style>
+        .stApp {
+            background-color: #000000 !important;
+            color: #FFFFFF !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, div, li, label {
+            color: #FFFFFF !important;
+        }
+        .stAlert {
+            background-color: #111111 !important;
+            color: #FFFFFF !important;
+            border-left: 4px solid #00FF66 !important;
+        }
+        .stDataframe {
+            background-color: #000000 !important;
+            color: #00FF66 !important;
+        }
+        th {
+            background-color: #000000 !important;
+            color: #00FF66 !important;
+        }
+        td {
+            background-color: #0A0A0A !important;
+            color: #FFFFFF !important;
+        }
+        /* Forzar color en métricas y bloques */
+        [data-testid="stMetricValue"] {
+            color: #00FF66 !important;
+            font-size: 3rem !important;
+            font-weight: bold !important;
+        }
+        [data-testid="stMetricLabel"] {
+            color: #FFFFFF !important;
+            font-size: 1.2rem !important;
+        }
+        .peligro [data-testid="stMetricValue"] {
+            color: #FF3333 !important;
+        }
+        .tension [data-testid="stMetricValue"] {
+            color: #FFFF33 !important;
+        }
+        /* Estilo para el expander */
+        .streamlit-expanderHeader {
+            background-color: #111111 !important;
+            color: #00FF66 !important;
+        }
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
 
-def render_detail(detail):
-    texto_limpio = detail.replace("🟢", "").replace("🟡", "").replace("🟠", "").replace("🔴", "").replace("🚨", "").replace("⚪", "").strip()
-    if "🔴" in detail or "🚨" in detail:
-        st.error(f"🚨 **{texto_limpio}**")
-    elif "🟠" in detail or "🟡" in detail:
-        st.warning(f"⚠️ **{texto_limpio}**")
-    elif "🟢" in detail or "✅" in detail:
-        st.success(f"✅ **{texto_limpio}**")
-    else:
-        st.info(f"ℹ️ **{texto_limpio}**")
-
-def guardar_y_sincronizar_score(score_actual):
-    archivo_csv = "historial_riesgo.csv"
-    hoy = str(date.today())
-    if os.path.exists(archivo_csv):
-        df_hist = pd.read_csv(archivo_csv)
-    else:
-        df_hist = pd.DataFrame(columns=["Fecha", "Score_Riesgo"])
-    if hoy not in df_hist["Fecha"].values:
-        nuevo_registro = pd.DataFrame([{"Fecha": hoy, "Score_Riesgo": score_actual}])
-        df_hist = pd.concat([df_hist, nuevo_registro], ignore_index=True)
-        df_hist.to_csv(archivo_csv, index=False)
-        try:
-            repo = Repo(os.getcwd())
-            repo.git.add(archivo_csv)
-            repo.index.commit(f"Update historial riesgo: {hoy}")
-            origin = repo.remote(name='origin')
-            origin.push()
-        except Exception:
-            pass
-    return df_hist
-
-def registrar_auditoria(variable, origen, estado, valor_crudo):
-    if 'registro_auditoria' not in st.session_state:
-        st.session_state.registro_auditoria = []
-    st.session_state.registro_auditoria.append({
-        "Variable Analizada": variable,
-        "Origen / Endpoint": origen,
-        "Estado de Inyección": estado,
-        "Valor Crudo Recibido": str(valor_crudo)
-    })
-
-@st.cache_data(ttl=3600, show_spinner="Descargando datos de Yahoo Finance y FRED...")
-def descargar_datos_centralizado(tickers_1y, tickers_3y, series_fred):
-    data = {}
-    for ticker in tickers_1y:
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="1y")
-            info = stock.info
-            if not hist.empty:
-                data[ticker] = {"hist": hist, "info": info}
-                registrar_auditoria(f"{ticker} Info General", "API yfinance (Live Ticker)", "Éxito 200", "Diccionario info recibido")
-            else:
-                data[ticker] = {"hist": pd.DataFrame(), "info": {}}
-                registrar_auditoria(f"{ticker} Info General", "API yfinance (Live Ticker)", "Error (Hist vacío)", "N/A")
-        except Exception as e:
-            data[ticker] = {"hist": pd.DataFrame(), "info": {}}
-            registrar_auditoria(f"{ticker} Info General", "API yfinance (Live Ticker)", "Error de Conexión", str(e))
-
-    for ticker in tickers_3y:
-        try:
-            stock = yf.Ticker(ticker)
-            hist_3y = stock.history(period="3y").dropna()
-            data[ticker] = {"hist_3y": hist_3y}
-            if not hist_3y.empty:
-                precio_actual = hist_3y['Close'].iloc[-1]
-                ema_200 = hist_3y['Close'].ewm(span=200, adjust=False).mean().iloc[-1] if len(hist_3y) >= 200 else None
-                registrar_auditoria(f"{ticker} Precio Actual", f"API yfinance (Live Ticker: {ticker}, 3Y History)", "Éxito 200", f"{precio_actual:.2f}")
-                if ema_200 is not None:
-                    registrar_auditoria(f"{ticker} EMA 200 Real", f"API yfinance (Cálculo Local EWM sobre {len(hist_3y)} días)", "Éxito 200", f"{ema_200:.2f}")
-                else:
-                    registrar_auditoria(f"{ticker} EMA 200 Real", "API yfinance (Cálculo Local EWM)", "Error (Muestra < 200 días)", "N/A")
-            else:
-                registrar_auditoria(f"{ticker} Historial 3A", f"API yfinance (Live Ticker: {ticker})", "Error (Dropna vacío)", "N/A")
-        except Exception as e:
-            registrar_auditoria(f"{ticker} Historial 3A", f"API yfinance (Live Ticker: {ticker})", "Error Crítico", str(e))
-
-    pe_config = {
-        "NVDA": (31.5, 20.0, "Trailing P/E (TTM) NVDA"),
-        "AMD": (155.0, 50.0, "Trailing P/E (AMD)"),
-        "INTC": (28.5, 15.0, "Trailing P/E (INTC)")
-    }
-    
-    for symbol, (fallback_pe, min_threshold, var_name) in pe_config.items():
-        if symbol in data and data[symbol].get("info"):
-            try:
-                info = data[symbol]["info"]
-                hist = data[symbol].get("hist", pd.DataFrame())
-                current_price = hist['Close'].iloc[-1] if not hist.empty else 0
-                raw_eps = info.get("trailingEps")
-                if raw_eps is not None and raw_eps > 0 and current_price > 0:
-                    pe_calculado = current_price / raw_eps
-                    if pe_calculado > min_threshold:
-                        data[symbol]["trailing_pe_used"] = pe_calculado
-                        registrar_auditoria(var_name, "API yfinance (Live info['trailingEps'])", "Éxito 200", f"{pe_calculado:.1f}x")
-                    else:
-                        data[symbol]["trailing_pe_used"] = fallback_pe
-                        registrar_auditoria(var_name, "API yfinance (Live info['trailingEps'])", f"Fallback (Valor < {min_threshold}x, sesgado)", f"{pe_calculado:.1f}x")
-                else:
-                    data[symbol]["trailing_pe_used"] = fallback_pe
-                    registrar_auditoria(var_name, "API yfinance (Live info['trailingEps'])", "Fallback (EPS Nulo/Inválido)", "Nulo")
-            except Exception as e:
-                data[symbol]["trailing_pe_used"] = fallback_pe
-                registrar_auditoria(var_name, "API yfinance (Live info['trailingEps'])", "Fallback (Error de cálculo)", str(e))
+# ==========================================
+# FUNCIONES AUXILIARES DE DATOS
+# ==========================================
+def obtener_datos_yfinance(ticker, periodo="3y"):
+    try:
+        df = yf.Ticker(ticker).history(period=periodo)
+        if not df.empty:
+            valor = df['Close'].iloc[-1]
+            registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Éxito", "Valor Crudo": round(valor, 2)})
+            return df
         else:
-            data[symbol]["trailing_pe_used"] = fallback_pe
-            registrar_auditoria(var_name, "API yfinance (Live Ticker)", "Fallback (Fallo Total API)", "N/A")
+            registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Vacío", "Valor Crudo": None})
+            return pd.DataFrame()
+    except Exception as e:
+        registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": f"Error: {str(e)}", "Valor Crudo": None})
+        return pd.DataFrame()
 
-    fred_data = {}
-    for series in series_fred:
-        try:
-            start = datetime.today() - timedelta(days=5*365)
-            df = web.DataReader(series, 'fred', start)
-            if not df.empty:
-                fred_data[series] = df
-                registrar_auditoria(f"{series} (FRED)", "FRED St. Louis (CSV Endpoint)", "Éxito 200", f"Dataframe de {len(df)} filas")
-            else:
-                registrar_auditoria(f"{series} (FRED)", "FRED St. Louis (CSV Endpoint)", "Error (DataFrame vacío)", "N/A")
-        except Exception as e:
-            registrar_auditoria(f"{series} (FRED)", "FRED St. Louis (CSV Endpoint)", "Error de Conexión", str(e))
-
-    return data, fred_data
-
-def analizar_modulo1_valoracion(data):
-    puntos = 0.0
-    detalles = []
-    pe_nvda = data["NVDA"].get("trailing_pe_used", 0.0)
-    pe_amd = data["AMD"].get("trailing_pe_used", 0.0)
-    pe_intel = data["INTC"].get("trailing_pe_used", 0.0)
-    
-    if pe_nvda < 25: 
-        puntos += 0.0
-        detalles.append("🟢 Trailing P/E NVDA < 25x: Suelo conservador.")
-    elif 25 <= pe_nvda < 30: 
-        puntos += 0.5
-        detalles.append("🟢 Trailing P/E NVDA 25-30x: Zona de confort.")
-    elif 30 <= pe_nvda < 35: 
-        puntos += 1.5
-        detalles.append("🟡 Trailing P/E NVDA 30-35x: Sector caro.")
-    elif 35 <= pe_nvda < 40: 
-        puntos += 2.0
-        detalles.append("🟠 Trailing P/E NVDA 35-40x: Carísima (Riesgo técnico).")
-    else: 
-        puntos += 4.0
-        detalles.append("🔴 Trailing P/E NVDA >= 40x: Burbuja desatada.")
-    
-    if pe_nvda > 0:
-        ratio_div = pe_amd / pe_nvda
-        if pe_nvda < 40 and ratio_div > 1.5:
-            puntos += 2.0
-            detalles.append("🔴 Alerta: Especulación extrema en rezagados (AMD) respecto al líder.")
-        elif pe_nvda >= 40 and ratio_div > 1.0:
-            puntos += 1.5
-            detalles.append("🔴 Alerta: Burbuja de arrastre colectivo extremo.")
-        elif pe_nvda < 25 and ratio_div > 1.5:
-            puntos += 1.5
-            detalles.append("🟠 Alerta: Minoristas atrapados en segundas marcas mientras NVDA capitula.")
-            
-    return puntos, detalles, f"**Trailing P/E (TTM) NVDA:** {pe_nvda:.1f}x | **Trailing P/E (TTM) AMD:** {pe_amd:.1f}x | **Trailing P/E (TTM) INTC:** {pe_intel:.1f}x"
-
-def analizar_modulo2_ciclo_fisico(data, nvda_pe):
-    puntos = 0.0
-    detalles = []
-    metricas = ""
-    mu_data = data.get("MU", {}).get("hist_3y")
-    kospi_data = data.get("KOSPI", {}).get("hist_3y")
-    
-    if mu_data is not None and not mu_data.empty and len(mu_data) >= 200:
-        precio_actual_mu = mu_data['Close'].iloc[-1]
-        ema_200_mu = mu_data['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
-        metricas += f"**MU Precio:** ${precio_actual_mu:.2f} vs **EMA 200:** ${ema_200_mu:.2f} | "
-        if precio_actual_mu < ema_200_mu and nvda_pe >= 30:
-            puntos += 2.0
-            detalles.append("🔴 Alerta Crítica: MU bajo EMA 200 con P/E NVDA >= 30x. Anticipa acumulación de inventarios y deflación de márgenes.")
-        elif precio_actual_mu < ema_200_mu:
-            detalles.append("🟡 MU debilucho, pero contexto de valoración de NVDA no es de riesgo extremo.")
+def obtener_pe(ticker):
+    try:
+        tk = yf.Ticker(ticker)
+        pe = tk.info.get("trailingPE")
+        if pe and pe > 0:
+            registro_metrológico.append({"Fuente": "Yahoo Finance (Info)", "Ticker": ticker, "Estado": "Éxito", "Valor Crudo": round(pe, 2)})
+            return pe
         else:
-            detalles.append("🟢 Ciclo físico de memorias sano (MU sobre EMA 200).")
-    else:
-        detalles.append("⚪ Datos históricos insuficientes para calcular EMA 200 de Micron (MU).")
-
-    if kospi_data is not None and not kospi_data.empty and len(kospi_data) >= 200:
-        precio_actual_kospi = kospi_data['Close'].iloc[-1]
-        ema_200_kospi = kospi_data['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
-        metricas += f"**KOSPI Precio:** {precio_actual_kospi:.2f} vs **EMA 200:** {ema_200_kospi:.2f}"
-        if precio_actual_kospi < ema_200_kospi and nvda_pe >= 35:
-            puntos += 1.5
-            detalles.append("🔴 Alerta: Debilidad industrial en Asia (KOSPI < EMA) mientras NVDA está en burbuja.")
-    else:
-        detalles.append("⚪ Datos históricos insuficientes para calcular EMA 200 del KOSPI.")
-    return puntos, detalles, metricas
-
-def analizar_modulo3_motor_corporativo(data, nvda_pe):
-    puntos = 0.0
-    detalles = []
-    tickers_hs = ['META', 'AMZN', 'GOOG', 'MSFT']
-    roics = []
-    
-    for ticker in tickers_hs:
-        try:
-            t = yf.Ticker(ticker)
-            financials = t.financials
-            balance = t.balance_sheet
-            
-            ebit = financials.loc['Operating Income'].iloc[0]
-            tax_provision = financials.loc['Tax Provision'].iloc[0]
-            pretax_income = financials.loc['Pretax Income'].iloc[0]
-            effective_tax_rate = max(0.0, min(tax_provision / pretax_income, 0.4)) if pretax_income > 0 else 0.21
-            nopat = ebit * (1 - effective_tax_rate)
-            equity = balance.loc['Stockholders Equity'].iloc[0]
-            st_debt = balance.loc['Current Debt'].iloc[0] if 'Current Debt' in balance.index else 0
-            lt_debt = balance.loc['Long Term Debt'].iloc[0] if 'Long Term Debt' in balance.index else 0
-            total_debt = np.nan_to_num(st_debt) + np.nan_to_num(lt_debt)
-            cash = balance.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in balance.index else 0
-            invested_capital = equity + total_debt - cash
-            roic = nopat / invested_capital if invested_capital > 0 else 0
-            roics.append(roic)
-        except Exception:
-            roic = 0.22 
-            roics.append(roic)
-        
-    avg_roic = np.mean(roics)
-    metricas = f"**ROIC TTM Promedio Hyperscalers:** {avg_roic*100:.1f}%"
-    
-    if avg_roic > 0.15:
-        puntos -= 1.5
-        detalles.append("🟢 Motor financiero indestructible (ROIC > 15%). Inmunidad parcial activada (-1.5 pts).")
-    else:
-        puntos += 1.5
-        detalles.append("🟠 Peligro de claudicación en CapEx de IA (ROIC < 15%). (+1.5 pts)")
-        
-    if nvda_pe < 25:
-        puntos -= 1.0
-        detalles.append("🟢 Cojín CUDA activado. P/E NVDA < 25x indica zona de acumulación segura (-1.0 pts).")
-        
-    return puntos, detalles, metricas
-
-def analizar_modulo4_credito_privado(data, nvda_pe):
-    puntos = 0.0
-    detalles = []
-    metricas = ""
-    
-    def check_ema_200(df):
-        if df is not None and not df.empty and len(df) >= 200:
-            return df['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
+            registro_metrológico.append({"Fuente": "Yahoo Finance (Info)", "Ticker": ticker, "Estado": "N/A o Negativo", "Valor Crudo": pe})
+            return None
+    except Exception as e:
+        registro_metrológico.append({"Fuente": "Yahoo Finance (Info)", "Ticker": ticker, "Estado": f"Error: {str(e)}", "Valor Crudo": None})
         return None
 
-    hyg = data.get("HYG", {}).get("hist")
-    bizd = data.get("BIZD", {}).get("hist")
-    apo = data.get("APO", {}).get("hist")
-    bx = data.get("BX", {}).get("hist")
-    kre = data.get("KRE", {}).get("hist")
-    
-    hyg_bizd_alert = False
-    if (hyg is not None and hyg['Close'].iloc[-1] < check_ema_200(hyg)) or \
-       (bizd is not None and bizd['Close'].iloc[-1] < check_ema_200(bizd)):
-        hyg_bizd_alert = True
+def obtener_roic_ttm(ticker):
+    try:
+        tk = yf.Ticker(ticker)
+        fin = tk.quarterly_financials
+        bal = tk.quarterly_balance_sheet
         
-    if hyg_bizd_alert and nvda_pe >= 30:
-        puntos += 2.0
-        detalles.append("🔴 Alerta: Estrés y cierre del grifo de deuda High Yield / BDCs mientras NVDA está caro.")
-    elif hyg_bizd_alert:
-        detalles.append("🟡 Crédito basura bajo EMA, pero el múltiplo de NVDA no está en zona de peligro.")
-    else:
-        detalles.append("🟢 Mercado de crédito privado (HYG/BIZD) líquido y estable.")
-
-    private_bank_alert = False
-    if nvda_pe >= 30:
-        apo_bx_cond = (apo is not None and apo['Close'].iloc[-1] < check_ema_200(apo)) or \
-                      (bx is not None and bx['Close'].iloc[-1] < check_ema_200(bx))
-        kre_cond = kre is not None and kre['Close'].iloc[-1] < check_ema_200(kre)
-        
-        if apo_bx_cond and kre_cond:
-            private_bank_alert = True
-            puntos += 2.0
-            detalles.append("🔴 Alerta Sistémica: Grietas en Private Equity (APO/BX) contagiando a la Banca Regional (KRE).")
+        if fin.empty or bal.empty:
+            registro_metrológico.append({"Fuente": "Yahoo Finance (Estados)", "Ticker": ticker, "Estado": "Sin datos trimestrales", "Valor Crudo": None})
+            return None
             
-    if not private_bank_alert and not hyg_bizd_alert: 
-        metricas = "✅ Estable"
-    return puntos, detalles, metricas
+        # TTM (Últimos 4 trimestres)
+        ebit = fin.loc[fin.index.str.contains("Operating Income", case=False, na=False)].iloc[:, :4].sum(axis=1).iloc[0]
+        tax = fin.loc[fin.index.str.contains("Income Tax Expense", case=False, na=False)].iloc[:, :4].sum(axis=1).iloc[0]
+        nopat = ebit - tax
+        
+        deuda = bal.loc[bal.index.str.contains("Total Debt", case=False, na=False)].iloc[:, 0].iloc[0]
+        equity = bal.loc[bal.index.str.contains("Stockholders Equity", case=False, na=False)].iloc[:, 0].iloc[0]
+        cash = bal.loc[bal.index.str.contains("Cash And Cash Equivalents", case=False, na=False)].iloc[:, 0].iloc[0]
+        
+        capital_invertido = deuda + equity - cash
+        if capital_invertido == 0 or capital_invertido != capital_invertido: # Evitar div/0 o NaN
+            return None
+            
+        roic = (nopat / capital_invertido) * 100
+        registro_metrológico.append({"Fuente": "Yahoo Finance (Estados)", "Ticker": ticker, "Estado": "Éxito", "Valor Crudo": round(roic, 2)})
+        return roic
+    except Exception as e:
+        registro_metrológico.append({"Fuente": "Yahoo Finance (Estados)", "Ticker": ticker, "Estado": f"Error: {str(e)}", "Valor Crudo": None})
+        return None
 
-def analizar_modulo5_startup_fed(data, fred_data, nvda_pe):
-    # CORRECCIÓN DEFINITIVA: Uso estricto de 'puntos'
+def calcular_ema_200(df):
+    if df.empty:
+        return None
+    return df['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
+
+# ==========================================
+# MÓDULOS DE RIESGO
+# ==========================================
+def modulo_1_semiconductores(pe_nvda, pe_amd):
     puntos = 0.0
-    detalles = []
-    metricas = ""
+    detalle = []
     
-    spcx = data.get("SPCX", {}).get("hist")
-    if spcx is not None and not spcx.empty:
-        spcx_price = spcx['Close'].iloc[-1]
-        ratio_inflacion = spcx_price / 80.0
-        metricas += f"**SPCX:** ${spcx_price:.2f} (Ratio Inflación: {ratio_inflacion:.1f}x) | "
-        if ratio_inflacion > 1.5:
+    if pe_nvda is None:
+        detalle.append("PE NVDA no disponible (se asume riesgo máximo)")
+        pe_nvda = 999.0
+        
+    # Rangos PE NVDA
+    if pe_nvda < 25:
+        puntos += 0.0
+        detalle.append(f"PE NVDA {pe_nvda:.1f}x (<25x): +0.0 pt")
+    elif 25 <= pe_nvda < 30:
+        puntos += 0.5
+        detalle.append(f"PE NVDA {pe_nvda:.1f}x (25-30x): +0.5 pt")
+    elif 30 <= pe_nvda < 35:
+        puntos += 1.5
+        detalle.append(f"PE NVDA {pe_nvda:.1f}x (30-35x): +1.5 pt")
+    elif 35 <= pe_nvda < 40:
+        puntos += 2.0
+        detalle.append(f"PE NVDA {pe_nvda:.1f}x (35-40x): +2.0 pt")
+    else:
+        puntos += 4.0
+        detalle.append(f"PE NVDA {pe_nvda:.1f}x (>=40x): +4.0 pt")
+
+    # Ratio de Divergencia
+    if pe_amd and pe_amd > 0 and pe_nvda > 0:
+        ratio = pe_amd / pe_nvda
+        if pe_nvda < 40 and ratio > 1.5:
             puntos += 2.0
-            detalles.append("🔴 Alerta: Euforia insostenible en startups privadas (SPCX > $120).")
+            detalle.append(f"Divergencia (Ratio {ratio:.2f} > 1.5x y NVDA <40x): +2.0 pt")
+        elif pe_nvda >= 40 and ratio > 1.0:
+            puntos += 1.5
+            detalle.append(f"Divergencia (Ratio {ratio:.2f} > 1.0x y NVDA >=40x): +1.5 pt")
+        elif pe_nvda < 25 and ratio > 1.5:
+            puntos += 1.5
+            detalle.append(f"Divergencia Extrema (Ratio {ratio:.2f} > 1.5x y NVDA <25x): +1.5 pt")
         else:
-            detalles.append("🟢 Valoración de startups privadas (SPCX) contenida.")
-            
-    walcl = fred_data.get("WALCL")
-    wtregen = fred_data.get("WTREGEN")
-    rrpontsyd = fred_data.get("RRPONTSYD")
+            detalle.append(f"Divergencia controlada (Ratio {ratio:.2f}): +0.0 pt")
+    else:
+        detalle.append("PE AMD no disponible para Ratio: +0.0 pt")
+
+    return puntos, detalle
+
+def modulo_2_ciclo_fisico(pe_nvda, df_ks11, df_mu):
+    puntos = 0.0
+    detalle = []
     
-    if walcl is not None and wtregen is not None and rrpontsyd is not None:
-        df_liquidez = pd.concat([walcl, wtregen, rrpontsyd], axis=1).dropna()
-        df_liquidez.columns = ['WALCL', 'WTREGEN', 'RRPONTSYD']
-        df_liquidez['Net_Liquidity'] = df_liquidez['WALCL'] - df_liquidez['WTREGEN'] - df_liquidez['RRPONTSYD']
+    if pe_nvda is None: pe_nvda = 0.0
+    
+    ema_ks11 = calcular_ema_200(df_ks11)
+    if ema_ks11 is not None and not df_ks11.empty:
+        precio_ks11 = df_ks11['Close'].iloc[-1]
+        if precio_ks11 < ema_ks11 and pe_nvda >= 35:
+            puntos += 1.5
+            detalle.append(f"KOSPI ({precio_ks11:.0f}) < EMA200 ({ema_ks11:.0f}) y PE NVDA >=35x: +1.5 pt")
+        else:
+            detalle.append("KOSPI por encima de EMA200 o PE NVDA < 35x: +0.0 pt")
+    else:
+        detalle.append("Datos KOSPI insuficientes para EMA200: +0.0 pt")
+
+    ema_mu = calcular_ema_200(df_mu)
+    if ema_mu is not None and not df_mu.empty:
+        precio_mu = df_mu['Close'].iloc[-1]
+        if precio_mu < ema_mu and pe_nvda >= 30:
+            puntos += 2.0
+            detalle.append(f"MICRON ({precio_mu:.2f}) < EMA200 ({ema_mu:.2f}) y PE NVDA >=30x: +2.0 pt")
+        else:
+            detalle.append("MICRON por encima de EMA200 o PE NVDA < 30x: +0.0 pt")
+    else:
+        detalle.append("Datos MICRON insuficientes para EMA200: +0.0 pt")
+
+    return puntos, detalle
+
+def modulo_3_motor_corporativo(pe_nvda, diccio_roics):
+    puntos = 0.0
+    detalle = []
+    
+    if pe_nvda is None: pe_nvda = 999.0
+    
+    roics_validos = [v for v in diccio_roics.values() if v is not None]
+    if roics_validos:
+        promedio_roic = sum(roics_validos) / len(roics_validos)
+        if promedio_roic > 15:
+            puntos -= 1.5
+            detalle.append(f"ROIC Promedio Magistral ({promedio_roic:.1f}% > 15%): -1.5 pt")
+        else:
+            puntos += 1.5
+            detalle.append(f"ROIC Promedio Débil ({promedio_roic:.1f}% <= 15%): +1.5 pt")
+    else:
+        detalle.append("ROICs no calculables (se suma riesgo neutral): +0.0 pt")
+
+    if pe_nvda < 25:
+        puntos -= 1.0
+        detalle.append(f"Amortiguador CUDA activado (PE NVDA {pe_nvda:.1f}x < 25x): -1.0 pt")
+    else:
+        detalle.append("Amortiguador CUDA desactivado: +0.0 pt")
+
+    return puntos, detalle
+
+def modulo_4_credito_privado(pe_nvda, df_hyg, df_bizd, df_apo, df_bx, df_kre):
+    puntos = 0.0
+    detalle = []
+    
+    if pe_nvda is None: pe_nvda = 0.0
+    
+    ema_hyg = calcular_ema_200(df_hyg)
+    ema_bizd = calcular_ema_200(df_bizd)
+    
+    condicion_hyg_bizd = False
+    if ema_hyg is not None and not df_hyg.empty and df_hyg['Close'].iloc[-1] < ema_hyg:
+        condicion_hyg_bizd = True
+    if ema_bizd is not None and not df_bizd.empty and df_bizd['Close'].iloc[-1] < ema_bizd:
+        condicion_hyg_bizd = True
+
+    if condicion_hyg_bizd and pe_nvda >= 30:
+        puntos += 2.0
+        detalle.append("Crédito Privado (HYG o BIZD < EMA200) y PE NVDA >=30x: +2.0 pt")
+    else:
+        detalle.append("Crédito Privado Sano o PE NVDA < 30x: +0.0 pt")
+
+    ema_apo = calcular_ema_200(df_apo)
+    ema_bx = calcular_ema_200(df_bx)
+    ema_kre = calcular_ema_200(df_kre)
+    
+    condicion_apo_bx = False
+    if ema_apo is not None and not df_apo.empty and df_apo['Close'].iloc[-1] < ema_apo:
+        condicion_apo_bx = True
+    if ema_bx is not None and not df_bx.empty and df_bx['Close'].iloc[-1] < ema_bx:
+        condicion_apo_bx = True
         
-        liq_actual = df_liquidez['Net_Liquidity'].iloc[-1]
-        ema_liq = df_liquidez['Net_Liquidez'].ewm(span=200, adjust=False).mean().iloc[-1]
-        
-        metricas += f"**Liquidez Neta FED:** ${liq_actual/1e6:.1f}T"
-        
-        if ema_liq is not None:
-            if liq_actual < ema_liq and nvda_pe >= 35:
+    condicion_kre = False
+    if ema_kre is not None and not df_kre.empty and df_kre['Close'].iloc[-1] < ema_kre:
+        condicion_kre = True
+
+    if condicion_apo_bx and condicion_kre and pe_nvda >= 30:
+        puntos += 2.0
+        detalle.append("Stress Regional/APE (APO/BX y KRE < EMA200) y PE NVDA >=30x: +2.0 pt")
+    else:
+        detalle.append("Stress Regional/APE controlado o PE NVDA < 30x: +0.0 pt")
+
+    return puntos, detalle
+
+def modulo_5_startups_fed(pe_nvda, df_spcx, df_ipo, df_fred):
+    puntos = 0.0
+    detalle = []
+    
+    if pe_nvda is None: pe_nvda = 0.0
+    
+    # Startup SPCX
+    if not df_spcx.empty:
+        precio_spcx = df_spcx['Close'].iloc[-1]
+        ratio_spcx = precio_spcx / 80.0
+        if ratio_spcx > 1.5:
+            puntos += 2.0
+            detalle.append(f"Burbuja Startups (SPCX {precio_spcx:.2f}/80 = {ratio_spcx:.2f}x > 1.5x): +2.0 pt")
+        else:
+            detalle.append(f"Startups Contenidas (Ratio {ratio_spcx:.2f}x): +0.0 pt")
+    else:
+        detalle.append("SPCX sin datos: +0.0 pt")
+
+    # FED Liquidez
+    if not df_fred.empty:
+        try:
+            df_fred = df_fred.fillna(method='ffill').fillna(0)
+            df_fred['Liquidez_Neta'] = df_fred.get('WALCL', 0) - df_fred.get('WTREGEN', 0) - df_fred.get('RRPONTSYD', 0)
+            
+            ema_liq = df_fred['Liquidez_Neta'].ewm(span=200, adjust=False).mean()
+            ultima_liq = df_fred['Liquidez_Neta'].iloc[-1]
+            ultima_ema_liq = ema_liq.iloc[-1]
+            
+            if ultima_liq < ultima_ema_liq and pe_nvda >= 35:
                 puntos += 2.5
-                detalles.append("🔴 Alerta Crítica: Estrangulamiento monetario soberano (Liquidez < EMA 200) con NVDA en burbuja.")
-            elif liq_actual < ema_liq:
-                detalles.append("🟡 La FRED está drenando liquidez, pero las valoraciones de IA no están en máximo extremo.")
+                detalle.append(f"Liquidez FED Contrayéndose ({ultima_liq:.0f} < EMA {ultima_ema_liq:.0f}) y PE NVDA >=35x: +2.5 pt")
+            else:
+                detalle.append("Liquidez FED Sana o PE NVDA < 35x: +0.0 pt")
                 
-        ipo = data.get("IPO", {}).get("hist")
-        if ipo is not None and not ipo.empty:
-            ipo_max = ipo['Close'].max()
-            ipo_actual = ipo['Close'].iloc[-1]
-            walcl_yoy = (walcl.iloc[-1] / walcl.iloc[-52]) - 1 if len(walcl) >= 52 else 0
+            # Fed Put (ETF IPO y WALCL)
+            if not df_ipo.empty:
+                max_ipo = df_ipo['Close'].max()
+                precio_ipo = df_ipo['Close'].iloc[-1]
+                caida_ipo = ((max_ipo - precio_ipo) / max_ipo) * 100 if max_ipo > 0 else 0
+                
+                df_walcl_w = df_fred.get('WALCL', pd.Series()).resample('W').last().dropna()
+                if not df_walcl_w.empty:
+                    incr_walcl = df_walcl_w.pct_change().iloc[-1]
+                    
+                    if caida_ipo > 30 and incr_walcl > 0.02:
+                        puntos += 1.5
+                        detalle.append(f"Fed Put Activado (IPO -{caida_ipo:.1f}% y WALCL semanal +{incr_walcl*100:.1f}%): +1.5 pt")
+                    else:
+                        detalle.append(f"Sín Fed Put (IPO -{caida_ipo:.1f}%, WALCL +{incr_walcl*100:.1f}%): +0.0 pt")
+                else:
+                    detalle.append("WALCL sin datos semanales para Fed Put: +0.0 pt")
+            else:
+                detalle.append("ETF IPO sin datos: +0.0 pt")
+                
+        except Exception as e:
+            registro_metrológico.append({"Fuente": "FRED (Cálculo)", "Ticker": "Liquidez_Neta", "Estado": f"Errorinterno: {str(e)}", "Valor Crudo": None})
+            detalle.append("Error calculando métricas FRED: +0.0 pt")
+    else:
+        detalle.append("Datos FRED completamente vacíos: +0.0 pt")
+
+    return puntos, detalle
+
+# ==========================================
+# GESTIÓN DE HISTORIAL (GitHub)
+# ==========================================
+def guardar_historial_github(puntuacion):
+    try:
+        token = st.secrets.get("GH_PAT")
+        repo_nombre = st.secrets.get("GH_REPO")
+        
+        if not token or not repo_nombre:
+            return False
             
-            if (ipo_actual / ipo_max) < 0.70 and walcl_yoy > 0.02:
-                # CORRECCIÓN DEFINITIVA: Uso estricto de 'puntos' por 'puntos'
-                puntos += 1.5
-                detalles.append("🚨 ALERTA CRÍTICA: Capitulación del minorista (IPO -30%) rescatada por inyección de la FED (>2% YoY). Socializando pérdidas.")
-    else:
-        detalles.append("⚪ No se pudieron obtener los datos de la FRED para analizar liquidez.")
+        g = Github(token)
+        repo = g.get_repo(repo_nombre)
+        archivo_nombre = "historial_riesgo.csv"
+        sha = None
+        df_hist = pd.DataFrame(columns=["Fecha", "Puntuacion_Riesgo"])
         
-    return puntos, detalles, metricas
-
-def generar_sintesis_global(score, raw, d1, d2, d3, d4, d5, nvda_pe):
-    texto = f"**Análisis Dinámico para Trailing P/E NVDA actual: {nvda_pe:.1f}x | Puntuación Cruda: {raw:.1f}**\n\n"
-    
-    if score < 3.0:
-        texto += "### 🟢 Diagnóstico: Ecosistema Sano y Autopropulsado\n"
-        texto += "Actualmente, el complejo de Inteligencia Artificial presenta fundamentos que justifican sus valoraciones. "
-        texto += "No hay señales de estrangulamiento de liquidez por parte de la FED, y el motor de capital de las Hyperscalers (ROIC > 15%) garantiza que los pedidos de infraestructura física se mantendrán sólidos. "
-        texto += "El mercado está recompensando la ejecución real (liderazgo de NVDA) en lugar de comprar narrativas especulativas en competidores rezagados. "
-        texto += "**Conclusión operativa:** Las correcciones en este entorno deben ser tratadas como oportunidades de acumulación institucional, no como el inicio de un crash estructural."
-    elif score < 6.0:
-        texto += "### 🟡 Diagnóstico: Tensión por Narrativa y Desconexiones Parciales\n"
-        texto += "El sistema está mostrando fatiga microestructural. Aunque los balances corporativos grandes no han roto todavía, "
-        texto += "estamos viendo anomalías preocupantes: "
-        if any("rezagados" in d or "AMD" in d for d in d1): texto += "**Divergencia de valoración en semiconductores secundarios**, "
-        if any("KOSPI" in d or "MU" in d for d in d2): texto += "**Debilidad en la cadena de suministro físico asiático**, "
-        if any("HYG" in d or "BIZD" in d for d in d4): texto += "**Aprietes iniciales en el crédito de alto riesgo**, "
-        texto += ". Esto indica que el mercado está transitando de una fase de inversión basada en crecimiento a una fase de supervivencia de narrativas. "
-        texto += "**Conclusión operativa:** Reducir exposición a activos puros de narrativa (segundas marcas, startups sin cash flow) y refugiarse en el duopolio real (NVDA y las Hyperscalers). No es una burbuja generalizada todavía, pero el margen de error se ha estrechado drásticamente."
-    else:
-        texto += "### 🔴 Diagnóstico: Peligro Inminente de Crash Sistémico\n"
-        texto += "Los indicadores cuantitativos están gritando un colapso inminente del ecosistema de IA. La transmisión del riesgo es total y letal: "
-        if any("FED" in d or "Liquidez" in d or "Estrangulamiento" in d for d in d5): texto += "**La Reserva Federal ha cortado el flujo de liquidez soberana**, destruyendo el respaldo último del mercado. "
-        if any("Socializando" in d or "Capitulación" in d for d in d5): texto += "**Se ha activado la trampa del Fed Put**: el minorista está siendo liquidado mientras se inyecta dinero para rescatar a los fondos privados. "
-        if any("CapEx" in d or "claudicación" in d for d in d3): texto += "**El motor corporativo ha claudicado**, significando que las Big Tech ya no pueden justificar el gasto en infraestructura. "
-        if any("Crédito" in d or "contagiando" in d for d in d4): texto += "**El sistema de crédito privado está contagiando a la banca tradicional**, lo que amenaza con un apalancamiento inverso masivo (margin calls). "
-        if any("inventarios" in d or "deflación" in d for d in d2): texto += "**El ciclo físico ha roto su soporte**, confirmando que la demanda real de servidores ha desacelerado bruscamente frente al exceso de oferta de chips. "
-        texto += "\n\n**Conclusión operativa:** Entorno de ONLY SHORTS o positions en efectivo. La probabilidad de un evento de 'Black Swan' sectorial supera el 80%. Cualquier rally debe ser utilizado para vender, no para comprar."
-
-    return texto
-
-def main():
-    st.markdown("<div class='main-header'><h1>🧠 RadarIA Cuantitativo</h1><p>Sistema Institucional de Detección de Burbujas en Inteligencia Artificial</p></div>", unsafe_allow_html=True)
-    
-    if 'registro_auditoria' not in st.session_state:
-        st.session_state.registro_auditoria = []
-    
-    tickers_1y = ["NVDA", "AMD", "INTC", "META", "AMZN", "GOOG", "MSFT", "APO", "BX", "BIZD", "HYG", "KRE", "SPCX", "IPO"]
-    tickers_3y = ["MU", "^KS11"]
-    series_fred = ["WALCL", "WTREGEN", "RRPONTSYD"]
-    
-    with st.spinner("Conectando con APIs financieras y auditando orígenes..."):
-        data, fred_data = descargar_datos_centralizado(tickers_1y, tickers_3y, series_fred)
-    
-    nvda_pe = data["NVDA"].get("trailing_pe_used", 0.0)
-    
-    p1, d1, m1 = analizar_modulo1_valoracion(data)
-    p2, d2, m2 = analizar_modulo2_ciclo_fisico(data, nvda_pe)
-    p3, d3, m3 = analizar_modulo3_motor_corporativo(data, nvda_pe)
-    p4, d4, m4 = analizar_modulo4_credito_privado(data, nvda_pe)
-    p5, d5, m5 = analizar_modulo5_startup_fed(data, fred_data, nvda_pe)
-    
-    raw_score = p1 + p2 + p3 + p4 + p5
-    final_score = max(0.0, min(10.0, raw_score))
-    
-    df_historial = guardar_y_sincronizar_score(round(final_score, 2.0))
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("### Índice de Alerta General de Burbuja de IA")
-        if final_score < 3: color_bar = "green"
-        elif final_score < 6: color_bar = "orange"
-        else: color_bar = "red"
+        try:
+            contenido = repo.get_contents(archivo_nombre)
+            datos_csv = contenido.decoded_content.decode('utf-8')
+            df_hist = pd.read_csv(io.StringIO(datos_csv))
+            sha = contenido.sha
+        except Exception:
+            pass # El archivo no existe aún, se creará
+            
+        fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        nueva_fila = pd.DataFrame({"Fecha": [fecha_actual], "Puntuacion_Riesgo": [puntuacion]})
+        df_hist = pd.concat([df_hist, nueva_fila], ignore_index=True)
         
-        st.markdown(f"""
-        <style>
-            div[data-testid="stProgress"] > div > div > div > div > div {{
-                background-color: {color_bar};
-            }}
-        </style>
-        """, unsafe_allow_html=True)
+        csv_actualizado = df_hist.to_csv(index=False)
         
-        st.progress(final_score / 10.0)
-        st.metric(label="Puntuación de Riesgo (0-10)", value=f"{final_score:.1f} pts", delta=f"Raw Score: {raw_score:.1f}")
-        
-        if final_score < 3: 
-            st.success("✅ **Estado: SANO / RACIONAL**")
-        elif final_score < 6: 
-            st.warning("⚠️ **Estado: TENSIÓN POR NARRATIVA**")
-        else: 
-            st.error("🚨 **Estado: PELIGRO INMINENTE DE CRASH**")
-
-    st.markdown("---")
-    
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Resumen Ejecutivo", "💸 M1: Valoración", "🏭 M2: Ciclo Físico", "🏗️ M3: Motor BigTech", "🏦 M4: Crédito Oculto", "🏦 M5: FED & Startups"])
-    
-    with tab1:
-        st.subheader("Síntesis Global y Transmisión de Riesgos")
-        st.markdown(generar_sintesis_global(final_score, raw_score, d1, d2, d3, d4, d5, nvda_pe))
-        
-    with tab2:
-        st.markdown("<div class='module-box alert-yellow'><h3>MÓDULO 1: VALORACIÓN DE SEMICONDUCTORES</h3></div>", unsafe_allow_html=True)
-        st.markdown(m1)
-        st.info("💡 **Lógica Microestructural:** El hardware es cíclico. Si el dinero huye del líder rentable (NVDA) y se refugia en competidores caros (AMD), el mercado no está comprando fundamentos, está comprando pura narrativa de 'catch-up'. Una divergencia de Trailing P/E > 1.5x a favor del rezagado históricamente indica que los inversores minoristas están asumiendo riesgos asimétricos injustificables.")
-        for d in d1: render_detail(d)
-        st.metric("Puntos acumulados", f"{p1:.1f}")
-
-    with tab3:
-        st.markdown("<div class='module-box alert-red'><h3>MÓDULO 2: CICLO FÍSICO DE MEMORIAS Y SUMINISTRO</h3></div>", unsafe_allow_html=True)
-        st.markdown(m2)
-        st.info("💡 **Lógica Macroeconómica:** Las memorias RAM/HBM son el 'canario en la mina'. Al ser bienes físicos con alta elasticidad, sus precios y la salud de sus fabricantes (Micron) anticipan cambios en la demanda de servidores. Si el KOSPI (proxy del comercio exterior tecnológico de Asia) cae bajo su EMA de 200 días sobre una base de 3 años, indica una desconexión letal entre el papel de Wall Street y la realidad de las fábricas.")
-        for d in d2: render_detail(d)
-        st.metric("Puntos acumulados", f"{p2:.1f}")
-
-    with tab4:
-        st.markdown("<div class='module-box alert-green'><h3>MÓDULO 3: MOTOR CORPORATIVO Y EL FOSO CUDA (ROIC)</h3></div>", unsafe_allow_html=True)
-        st.markdown(m3)
-        st.info("💡 **Lógica de Negocio (ROIC vs ROA/ROE):** A diferencia del ROA (que ignora la estructura de capital) o del ROE (que se infla peligrosamente con deuda), el **ROIC (Return on Invested Capital)** es la métrica definitiva institucional. Mide los rendimientos reales generados sobre todo el capital desplegado (Patrimonio + Deuda Neta). Cuando el ROIC de las Hyperscalers supera consistentemente su Costo de Capital Promedio Ponderado (WACC) —generalmente entre un 9% y un 12%—, demuestra que la brutal inversión en infraestructura de IA (servidores Nvidia) está creando valor económico real, no destruyéndolo. Si este ROIC cae por debajo del 15%, significa que el peso del CapEx está aplastando la rentabilidad corporativa.")
-        for d in d3: render_detail(d)
-        st.metric("Puntos acumulados", f"{p3:.1f}")
-
-    with tab5:
-        st.markdown("<div class='module-box alert-red'><h3>MÓDULO 5: EUFORIA STARTUPS Y EL GRIFO DE LA FED</h3></div>", unsafe_allow_html=True)
-        st.markdown(m5)
-        st.info("💡 **Lógica Termodinámica de Liquidez:** Las startups operan como agujeros negros que destruyen el efectivo del sistema. El ETF SPCX (SpaceX proxy) a $80 representa su valor industrial real; cualquier precio por encima es inflación especulativa pura. A nivel macro, la única forma de que una burbuja de esta magnitud no colapse es mediante la inyección de Liquidez Neta de la Reserva Federal (Balance Total - Tesoro - Repos). Si el minorista capitula (IPO -30%) y la FED inyecta dinero de emergencia (>2% expansión), estás presenciando la socialización de las pérdidas de los fondos de venture capital.")
-        for d in d5: render_detail(d)
-        st.markdown(f"<div style='margin-top: 10px;'>**Puntos acumulados:** {p5:.1f}</div>", unsafe_allow_html=True)
-
-    # --- MÓDULO 6: METROLOGÍA Y TRAZABILIDAD DE ORIGEN ---
-    st.markdown("---")
-    
-    with st.expander("🔬 MÓDULO 6: METROLOGÍA Y TRAZABILIDAD DE ORIGEN (Auditoría de Datos)", expanded=False):
-        st.markdown("<div class='module-box audit-box'><h3>Registros Exactos de Inyección de Datos al Motor de Riesgo</h3></div>", unsafe_allow_html=True)
-        st.caption("Esta tabla expone la fuente exacta, el endpoint utilizado, el estado de la conexión y el valor crudo exacto recibido antes de pasar por la lógica de blindaje matemático. Garantiza trazabilidad institucional total.")
-        
-        if st.session_state.get('registro_auditoria'):
-            df_auditoria = pd.DataFrame(st.session_state.registro_auditoria)
-            st.dataframe(
-                df_auditoria, 
-                column_config={
-                    "Variable Analizada": st.column_config.TextColumn("Variable Analizada", width="medium"),
-                    "Origen / Endpoint": st.column_config.TextColumn("Origen / Endpoint", width="large"),
-                    "Estado de Inyección": st.column_config.TextColumn("Estado de Inyección", width="medium"),
-                    "Valor Crudo Recibido": st.column_config.TextColumn("Valor Crudo Recibido", width="large")
-                },
-                use_container_width=True,
-                hide_index=True
-            )
+        if sha:
+            repo.update_file(archivo_nombre, f"Actualización riesgo IA {fecha_actual}", csv_actualizado, sha)
         else:
-            st.warning("No se registraron datos de auditoría en esta ejecución.")
+            repo.create_file(archivo_nombre, "Creación historial riesgo IA", csv_actualizado)
+            
+        return True
+    except Exception as e:
+        st.error(f"Error Git: {e}")
+        return False
 
+# ==========================================
+# FUNCIÓN PRINCIPAL
+# ==========================================
+def main():
+    st.set_page_config(page_title="Indicador Burbuja IA", page_icon="🚨", layout="wide")
+    inyectar_css()
+    
+    st.title("🚨 INDICADOR PERSONALIZADO BURBUJA IA")
+    st.markdown("**Sistema de Medición de Riesgo de Crash (Escala 0 - 10)**")
     st.markdown("---")
-    st.subheader("📈 Evolución Histórica del Índice de Riesgo")
-    if not df_historial.empty:
-        st.line_chart(df_historial.set_index('Fecha'))
-        st.caption("Registro diario almacenado de forma persistente mediante Git.")
-    else:
-        st.info("El historial se construirá y guardará automáticamente a partir de la ejecución de hoy.")
 
-if __name__ == "__main__":
-    main()
+    with st.spinner("🛰️ Extrayendo datos de Yahoo Finance y FRED..."):
+        # Precios y EMA 200
+        df_ks11 = obtener_datos_yfinance("^KS11")
+        df_mu = obtener_datos_yfinance("MU")
+        df_hyg = obtener_datos_yfinance("HYG")
+        df_bizd = obtener_datos_yfinance("BIZD")
+        df_apo = obtener_datos_yfinance("APO")
+        df_bx = obtener_datos_yfinance("BX")
+        df_kre = obtener_datos_yfinance("KRE")
+        df_spcx = obtener_datos_yfinance("SPCX", "1y")
+        df_ipo = obtener_datos_yfinance("IPO", "1y")
+        
+        # Fundamental
+        pe_nvda = obtener_pe("NVDA")
+        pe_amd = obtener_pe("AMD")
+        
+        # ROICs
+        roic_meta = obtener_roic_ttm("META")
+        roic_amzn = obtener_roic_ttm("AMZN")
+        roic_goog = obtener_roic_ttm("GOOG")
+        roic_msft = obtener_roic_ttm("MSFT")
+        diccio_roics = {"META": roic_meta, "AMZN": roic_amzn, "GOOG": roic_goog, "MSFT": roic_msft}
+        
+        # FRED
+        try:
+            df_fred = pdr.DataReader(["WALCL", "WTREGEN", "RRPONTSYD"], "fred", "2020-01-01")
+            if not df_fred.empty:
+                for col in ["WALCL", "WTREGEN", "RRPONTSYD"]:
+                    if col in df_fred.columns:
+                        registro_metrológico.append({"Fuente": "FRED", "Ticker": col, "Estado": "Éxito", "Valor Crudo": df_fred[col].iloc[-1]})
+            else:
+                df_fred = pd.DataFrame()
+                for col in ["WALCL", "WTREGEN", "RRPONTSYD"]:
+                    registro_metrológico.append({"Fuente": "FRED", "Ticker": col, "Estado": "Vacío", "Valor Crudo": None})
+        except Exception as e:
+            df_fred = pd.DataFrame()
+            for col in ["WALCL", "WTREGEN", "RRPONTSYD"]:
+                registro_metrológico.append({"Fuente": "FRED", "Ticker": col, "Estado": f"Error: {str(e)}", "Valor Crudo": None})
+
+    # Cálculo de Módulos
+    ptos_m1, det_m1 = modulo_1_semiconductores(pe_nvda, pe_amd)
+    ptos_m2, det_m2 = modulo_2_ciclo_fisico(pe_nvda, df_ks11, df_mu)
+    ptos_m3, det_m3 = modulo_3_motor_corporativo(pe_nvda, diccio_roics)
+    ptos_m4, det_m4 = modulo_4_credito_privado(pe_nvda, df_hyg, df_bizd, df_apo, df_bx, df_kre)
+    ptos_m5, det_m5 = modulo_5_startups_fed(pe_nvda, df_spcx, df_ipo, df_fred)
+    
+    puntuacion_total = ptos_m1 + ptos_m2 + ptos_m3 + ptos_m4 + ptos_m5
+    puntuacion_normalizada = min(max(puntuacion_total, 0.0), 10.0)
+
+    # Interfaz de Resultados
+    col_izq, col_der = st.columns([1, 2])
+    
+    with col_izq:
+        color_clase = "sano"
+        texto_estado = "SANO 🟢"
+        if puntuacion_normalizada >= 3.0 and puntuacion_normalizada <= 6.0:
+            color_clase = "tension"
+            texto_estado = "TENSIÓN 🟡"
+        elif puntuacion_normalizada > 6.0:
+            color_clase = "peligro"
+            texto_estado = "PELIGRO DE CRASH 🔴"
+            
+        st.markdown(f"<div class='{color_clase}' style='text-align:center; padding:20px; border: 2px solid #FFFFFF; border-radius:10px; background-color:#0A0A0A;'>", unsafe_allow_html=True)
+        st.metric(label="NIVEL DE RIESGO", value=f"{puntuacion_normalizada:.1f} / 10.0")
+        st.markdown(f"<h2 style='text-align:center; color:#FFFFFF;'>{texto_estado}</h2>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_der:
+        with st.expander("📖 Desglose Técnico por Módulos", expanded=True):
+            st.subheader("Módulo 1: Semiconductores")
+            for d in det_m1: st.markdown(f"- {d}")
+            st.markdown(f"**Subtotal M1: {ptos_m1:.1f} pts**")
+            
+            st.subheader("Módulo 2: Ciclo Físico")
+            for d in det_m2: st.markdown(f"- {d}")
+            st.markdown(f"**Subtotal M2: {ptos_m2:.1f} pts**")
+            
+            st.subheader("Módulo 3: Motor Corporativo")
+            for d in det_m3: st.markdown(f"- {d}")
+            st.markdown(f"**Subtotal M3: {ptos_m3:.1f} pts**")
+            
+            st.subheader("Módulo 4: Crédito Privado")
+            for d in det_m4: st.markdown(f"- {d}")
+            st.markdown(f"**Subtotal M4: {ptos_m4:.1f} pts**")
+            
+            st.subheader("Módulo 5: Startups y FED")
+            for d in det_m5: st.markdown(f"- {d}")
+            st.markdown(f"**Subtotal M5: {ptos_m5:.1f} pts**")
+            
+            st.markdown("---")
+            st.markdown(f"**PUNTUACIÓN BRUTA ACUMULADA: {puntuacion_total:.1f} pts** (Normalizada al tope de 10.0)")
+
+    # Módulo 6: Metrológico
+    with st.expander("🔬 MÓDULO 6: METROLOGÍA Y TRAZABILIDAD DE ORIGEN", expanded=False):
+        df_metrolgia = pd.DataFrame(registro_metrológico)
+        if not df_metrolgia.empty:
+            st.dataframe(df_metrolgia, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No se registraron trazas metrológicas.")
+
+    # Git Push en Background
+    if st.button("💾 Guardar Trazabilidad y Puntaje en GitHub"):
+        with st.spinner("Conectando con GitHub..."):
+            exito = guardar_historial_github(puntuacion_normalizada)
+            if exito:
+                st.success("✅ Historial actualizado y subido con éxito al repositorio.")
+            else:
+                st.error("❌ Fallo al subir. Revisa los secretos (GH_PAT, GH_REPO) en Streamlit.")
+
+# ==========================================
+# CIERRE EXACTO
+# ==========================================
+if __name__ == "__main__": main()
