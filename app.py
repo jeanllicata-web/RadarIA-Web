@@ -1,15 +1,14 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import requests
 from github import Github
 import io
 from datetime import datetime
 
 # ==========================================
-# REGISTRO METROLÓGICO GLOBAL
+# REGISTRO METROLÓGICO GLOBAL (MÓDULO 6)
 # ==========================================
-registro_metrológico = []
+registro_auditoria = []
 
 # ==========================================
 # DISEÑO E INFRAESTRUCTURA (Ultra-Contraste)
@@ -25,7 +24,7 @@ def inyectar_css():
             color: #FFFFFF !important;
         }
         .stAlert, .stCaption {
-            background-color: #111111 !important;
+            background-color: #0A0A0A !important;
             color: #FFFFFF !important;
             border-left: 4px solid #00FF66 !important;
         }
@@ -65,44 +64,6 @@ def inyectar_css():
     st.markdown(css, unsafe_allow_html=True)
 
 # ==========================================
-# MÓDULO DE LECTURA MACRO (ALPHA VANTAGE)
-# ==========================================
-def descargar_datos_fred():
-    api_key = st.secrets.get("AV_API_KEY")
-    # Endpoint oficial real de Alpha Vantage para indicadores económicos
-    url = f"https://alphavantage.co{api_key}"
-    df_unificado = pd.DataFrame()
-    
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            data_json = response.json()
-            # Alpha Vantage devuelve los datos macro bajo la llave 'data'
-            if "data" in data_json:
-                df = pd.DataFrame(data_json["data"])
-                df['date'] = pd.to_datetime(df['date'])
-                df['value'] = pd.to_numeric(df['value'], errors='coerce')
-                df.set_index('date', inplace=True)
-                df.sort_index(inplace=True)
-                
-                # Mapeo analítico: Estimamos la curva de Liquidez Neta de forma inversa al estrés de tipos
-                # Para mantener la escala matemática del Módulo 5, simulamos el nivel de 6.0T indexado
-                df['Liquidez_Neta'] = 6000000.0 * (1 - (df['value'] / 100.0))
-                df_unificado = df.ffill().bfill()
-    except Exception:
-        pass
-        
-    # Sistema de contingencia de alta disponibilidad
-    if df_unificado.empty or 'Liquidez_Neta' not in df_unificado.columns:
-        df_unificado = pd.DataFrame(index=[pd.Timestamp.now()])
-        df_unificado['Liquidez_Neta'] = 6000000.0 # 6.0T Proxy Estable para blindar el indicador
-        registro_metrológico.append({"Fuente": "Alpha Vantage", "Ticker": "Liquidez_Neta", "Estado": "Proxy de Emergencia", "Valor Crudo": 6000000.0})
-    else:
-        registro_metrológico.append({"Fuente": "Alpha Vantage", "Ticker": "Liquidez_Neta", "Estado": "Inyección Real Alpha Vantage", "Valor Crudo": df_unificado['Liquidez_Neta'].iloc[-1]})
-        
-    return df_unificado
-
-# ==========================================
 # FUNCIONES AUXILIARES DE DATOS
 # ==========================================
 def obtener_datos_yfinance(ticker, periodo="3y"):
@@ -113,49 +74,28 @@ def obtener_datos_yfinance(ticker, periodo="3y"):
             df = df.dropna(subset=['Close'])
             if not df.empty:
                 valor = df['Close'].iloc[-1]
-                registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(valor, 2)})
+                registro_auditoria.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Inyección Real", "Valor Crudo": round(valor, 2)})
                 return df
-        registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": None})
+        registro_auditoria.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": None})
         return pd.DataFrame()
     except Exception as e:
-        registro_metrológico.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": f"Error: {str(e)[:30]}", "Valor Crudo": None})
+        registro_auditoria.append({"Fuente": "Yahoo Finance", "Ticker": ticker, "Estado": f"Error: {str(e)[:30]}", "Valor Crudo": None})
         return pd.DataFrame()
 
-def obtener_bpa_dinamico(ticker_symbol):
+def calcular_pe_dinamico(ticker, bpa_fijo):
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        df_earnings = ticker.get_earnings_dates(limit=10)
-        if df_earnings is not None and not df_earnings.empty:
-            df_reales = df_earnings[df_earnings['Reported EPS'].notna()].head(4)
-            if not df_reales.empty:
-                bpa_ttm = df_reales['Reported EPS'].sum()
-                if bpa_ttm > 0: return bpa_ttm
-        return None
-    except Exception: return None
-
-def obtener_pe(ticker):
-    try:
-        tk = yf.Ticker(ticker)
-        pe = tk.info.get("trailingPE")
-        if pe is None or pe <= 0 or pe != pe:
-            bpa = obtener_bpa_dinamico(ticker)
-            if bpa:
-                precio = tk.info.get("currentPrice") or tk.info.get("previousClose")
-                if precio:
-                    pe = precio / bpa
-                    registro_metrológico.append({"Fuente": "YFinance (BPA Dinámico)", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(pe, 2)})
-                    return pe
-            valores_base = {"NVDA": 30.0, "AMD": 100.0}
-            pe = valores_base.get(ticker, 35.0)
-            registro_metrológico.append({"Fuente": "YFinance (Fallback)", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": pe})
+        df = yf.Ticker(ticker).history(period="2d")
+        if not df.empty:
+            precio = df['Close'].iloc[-1]
+            pe = precio / bpa_fijo
+            registro_auditoria.append({"Fuente": "YFinance (History)", "Ticker": ticker, "Estado": "Inyección Real via Precio/BPA Fijo", "Valor Crudo": round(pe, 2)})
             return pe
-        registro_metrológico.append({"Fuente": "Yahoo Finance (Info)", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(pe, 2)})
-        return pe
-    except Exception as e:
-        valores_base = {"NVDA": 30.0, "AMD": 100.0}
-        pe = valores_base.get(ticker, 35.0)
-        registro_metrológico.append({"Fuente": "YFinance (Excepción)", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": pe})
-        return pe
+    except Exception:
+        pass
+    pe_fallback = {"NVDA": 30.0, "AMD": 100.0}
+    pe = pe_fallback.get(ticker, 35.0)
+    registro_auditoria.append({"Fuente": "Fallback PE", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": pe})
+    return pe
 
 def obtener_roic_ttm(ticker):
     try:
@@ -164,16 +104,16 @@ def obtener_roic_ttm(ticker):
         roa = tk.info.get("returnOnAssets")
         if roe is not None and roa is not None and roe > 0 and roa > 0:
             roic = ((roe + roa) / 1.5) * 100
-            registro_metrológico.append({"Fuente": "YFinance (Lightweight)", "Ticker": ticker, "Estado": "Real / En tiempo real", "Valor Crudo": round(roic, 2)})
+            registro_auditoria.append({"Fuente": "YFinance (Lightweight)", "Ticker": ticker, "Estado": "Inyección Real via ROE/ROA", "Valor Crudo": round(roic, 2)})
             return roic
         raise ValueError("ROE/ROA inválidos")
-    except Exception as e:
+    except Exception:
         roics_sec = {"META": 23.9, "AMZN": 18.5, "GOOG": 24.0, "MSFT": 25.1}
         roic_fallback = roics_sec.get(ticker)
         if roic_fallback is not None:
-            registro_metrológico.append({"Fuente": "Contingencia SEC", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": roic_fallback})
+            registro_auditoria.append({"Fuente": "Contingencia SEC", "Ticker": ticker, "Estado": "Plan de Contingencia / Proxy", "Valor Crudo": roic_fallback})
             return roic_fallback
-        registro_metrológico.append({"Fuente": "Contingencia SEC", "Ticker": ticker, "Estado": "Sin dato", "Valor Crudo": None})
+        registro_auditoria.append({"Fuente": "Contingencia SEC", "Ticker": ticker, "Estado": "Sin dato", "Valor Crudo": None})
         return None
 
 def calcular_ema_200(df):
@@ -257,11 +197,12 @@ def modulo_4_credito_privado(pe_nvda, df_hyg, df_bizd, df_apo, df_bx, df_kre):
     else: detalle.append("Stress Regional/APE controlado o PE NVDA < 30x: +0.0 pt")
     return puntos, detalle
 
-def modulo_5_startups_fed(pe_nvda, df_spcx, df_ipo, df_fred):
+def modulo_5_startups_fed(pe_nvda, df_spcx, df_bil):
     puntos = 0.0
     detalle = []
     if pe_nvda is None: pe_nvda = 0.0
     
+    # Lógica de Startups
     if not df_spcx.empty:
         precio_spcx = df_spcx['Close'].iloc[-1]
         ratio_spcx = precio_spcx / 80.0
@@ -269,40 +210,21 @@ def modulo_5_startups_fed(pe_nvda, df_spcx, df_ipo, df_fred):
         else: detalle.append(f"Startups Contenidas (Ratio {ratio_spcx:.2f}x): +0.0 pt")
     else: detalle.append("SPCX sin datos: +0.0 pt")
 
-    if not df_fred.empty:
-        try:
-            if 'Liquidez_Neta' in df_fred.columns:
-                ema_liq = df_fred['Liquidez_Neta'].ewm(span=200, adjust=False).mean()
-                if not ema_liq.empty:
-                    ultima_liq = df_fred['Liquidez_Neta'].iloc[-1]
-                    ultima_ema_liq = ema_liq.iloc[-1]
-                    if ultima_liq < ultima_ema_liq and pe_nvda >= 35: 
-                        puntos += 2.5; detalle.append(f"Liquidez FED Contrayéndose ({ultima_liq:.0f} < EMA {ultima_ema_liq:.0f}) y PE NVDA >=35x: +2.5 pt")
-                    else: detalle.append("Liquidez FED Sana o PE NVDA < 35x: +0.0 pt")
-                else: detalle.append("Serie EMA Liquidez vacía: +0.0 pt")
-            else: detalle.append("Liquidez Neta no disponible en el DataFrame: +0.0 pt")
-            
-            # Lógica Fed Put adaptada (solo si existe la columna diferenciada WALCL)
-            if 'WALCL' in df_fred.columns and not df_ipo.empty:
-                max_ipo = df_ipo['Close'].max()
-                precio_ipo = df_ipo['Close'].iloc[-1]
-                caida_ipo = ((max_ipo - precio_ipo) / max_ipo) * 100 if max_ipo > 0 else 0
-                df_walcl_w = df_fred['WALCL'].resample('W').last().dropna()
-                if not df_walcl_w.empty:
-                    incr_walcl = df_walcl_w.pct_change().iloc[-1]
-                    if caida_ipo > 30 and incr_walcl > 0.02: 
-                        puntos += 1.5; detalle.append(f"Fed Put Activado (IPO -{caida_ipo:.1f}% y WALCL semanal +{incr_walcl*100:.1f}%): +1.5 pt")
-                    else: detalle.append(f"Sín Fed Put (IPO -{caida_ipo:.1f}%): +0.0 pt")
-                else: detalle.append("WALCL sin datos semanales para Fed Put: +0.0 pt")
-            elif not df_ipo.empty:
-                detalle.append("ETF IPO sin pareja WALCL diferenciada para evaluar Fed Put: +0.0 pt")
-            else: 
-                detalle.append("ETF IPO sin datos: +0.0 pt")
-                
-        except Exception as e:
-            registro_metrológico.append({"Fuente": "AV (Cálculo)", "Ticker": "Liquidez_Neta", "Estado": f"Errorinterno: {str(e)}", "Valor Crudo": None})
-            detalle.append("Error calculando métricas de liquidez: +0.0 pt")
-    else: detalle.append("Datos macro completamente vacíos: +0.0 pt")
+    # OPCIÓN B: Proxy de Mercado Real e Inmune (ETF BIL)
+    if not df_bil.empty:
+        ema_bil = calcular_ema_200(df_bil)
+        if ema_bil is not None:
+            precio_bil = df_bil['Close'].iloc[-1]
+            if precio_bil < ema_bil and pe_nvda >= 35:
+                puntos += 2.5
+                detalle.append(f"Alerta: Estrangulamiento Monetario (BIL {precio_bil:.2f} < EMA {ema_bil:.2f}) y PE NVDA >=35x: +2.5 pt")
+            else:
+                detalle.append("Condiciones Monetarias de Mercado Sanas: +0.0 pt")
+        else:
+            detalle.append("Datos de BIL insuficientes para EMA200: +0.0 pt")
+    else:
+        detalle.append("ETF BIL sin datos de mercado: +0.0 pt")
+        
     return puntos, detalle
 
 # ==========================================
@@ -346,7 +268,7 @@ def main():
     st.markdown("**Sistema de Medición de Riesgo de Crash (Escala 0 - 10)**")
     st.markdown("---")
 
-    with st.spinner("🛰️ Extrayendo datos con tolerancia a fallos (Yahoo Finance / Alpha Vantage)..."):
+    with st.spinner("🛰️ Extrayendo datos de mercado inmunizados..."):
         df_ks11 = obtener_datos_yfinance("^KS11")
         df_mu = obtener_datos_yfinance("MU")
         df_hyg = obtener_datos_yfinance("HYG")
@@ -355,24 +277,28 @@ def main():
         df_bx = obtener_datos_yfinance("BX")
         df_kre = obtener_datos_yfinance("KRE")
         df_spcx = obtener_datos_yfinance("SPCX", "1y")
-        df_ipo = obtener_datos_yfinance("IPO", "1y")
         
-        pe_nvda = obtener_pe("NVDA")
-        pe_amd = obtener_pe("AMD")
+        # Extracción del Proxy BIL (OPCIÓN B)
+        df_bil = obtener_datos_yfinance("BIL")
+        if not df_bil.empty:
+            registro_auditoria.append({"Fuente": "Yahoo Finance", "Ticker": "BIL", "Estado": "Inyección Real via Proxy de Mercado (yfinance Ticker: BIL)", "Valor Crudo": df_bil['Close'].iloc[-1]})
         
+        # Módulo 1: P/E Dinámico (Evita .info pesado)
+        pe_nvda = calcular_pe_dinamico("NVDA", bpa_fijo=6.60)
+        pe_amd = calcular_pe_dinamico("AMD", bpa_fijo=1.05)
+        
+        # Módulo 3: ROIC Ligero
         roic_meta = obtener_roic_ttm("META")
         roic_amzn = obtener_roic_ttm("AMZN")
         roic_goog = obtener_roic_ttm("GOOG")
         roic_msft = obtener_roic_ttm("MSFT")
         diccio_roics = {"META": roic_meta, "AMZN": roic_amzn, "GOOG": roic_goog, "MSFT": roic_msft}
-        
-        df_fred = descargar_datos_fred()
 
     ptos_m1, det_m1 = modulo_1_semiconductores(pe_nvda, pe_amd)
     ptos_m2, det_m2 = modulo_2_ciclo_fisico(pe_nvda, df_ks11, df_mu)
     ptos_m3, det_m3 = modulo_3_motor_corporativo(pe_nvda, diccio_roics)
     ptos_m4, det_m4 = modulo_4_credito_privado(pe_nvda, df_hyg, df_bizd, df_apo, df_bx, df_kre)
-    ptos_m5, det_m5 = modulo_5_startups_fed(pe_nvda, df_spcx, df_ipo, df_fred)
+    ptos_m5, det_m5 = modulo_5_startups_fed(pe_nvda, df_spcx, df_bil)
     
     puntuacion_total = ptos_m1 + ptos_m2 + ptos_m3 + ptos_m4 + ptos_m5
     puntuacion_normalizada = min(max(puntuacion_total, 0.0), 10.0)
@@ -394,27 +320,27 @@ def main():
         with st.expander("📖 Desglose Técnico por Módulos", expanded=True):
             
             st.subheader("Módulo 1: Semiconductores")
-            st.info("**Foco Analítico:** El hardware de diseño de microchips es cíclico. Separamos al líder real que genera caja (NVIDIA) de la pura especulación por narrativa de los rezagados (AMD, INTC) midiendo sus desviaciones de múltiplos Trailing P/E.")
+            st.info("Foco Analítico: El hardware de diseño de microchips es cíclico. Separamos al líder real que genera caja (NVIDIA) de la pura especulación por narrativa de los rezagados (AMD, INTC) midiendo sus desviaciones de múltiplos Trailing P/E.")
             for d in det_m1: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M1: {ptos_m1:.1f} pts**")
             
             st.subheader("Módulo 2: Ciclo Físico")
-            st.info("**Foco Analítico:** Las memorias RAM/HBM son commodities tecnológicas. Sus beneficios se inflan por escasez. El peligro real es la acumulación oculta de inventarios y la deflación de márgenes en Asia antes de que impacte a Wall Street.")
+            st.info("Foco Analítico: Las memorias RAM/HBM son commodities tecnológicas. Sus beneficios se inflan por escasez. El peligro real es la acumulación oculta de inventarios y la deflación de márgenes en Asia antes de que impacte a Wall Street.")
             for d in det_m2: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M2: {ptos_m2:.1f} pts**")
             
             st.subheader("Módulo 3: Motor Corporativo")
-            st.info("**Foco Analítico:** Las Big Tech tienen balances capaces de aguantar el CapEx de IA pesado. Evaluamos el ROIC TTM real para confirmar si el motor financiero institucional sigue siendo indestructible o si hay peligro de claudicación en la compra de servidores.")
+            st.info("Foco Analítico: Las Big Tech tienen balances capaces de aguantar el CapEx de IA pesado. Evaluamos el ROIC TTM real para confirmar si el motor financiero institucional sigue siendo indestructible o si hay peligro de claudicación en la compra de servidores.")
             for d in det_m3: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M3: {ptos_m3:.1f} pts**")
             
             st.subheader("Módulo 4: Crédito Privado")
-            st.info("**Foco Analítico:** Las startups de IA insolventes que queman caja dependen del crédito privado para refinanciarse. Si estos vehículos de deuda sufren impagos, la insolvencia se transmite como riesgo de crédito directo a los balances de la banca regional.")
+            st.info("Foco Analítico: Las startups de IA insolventes que queman caja dependen del crédito privado para refinanciarse. Si estos vehículos de deuda sufren impagos, la insolvencia se transmite como riesgo de crédito directo a los balances de la banca regional.")
             for d in det_m4: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M4: {ptos_m4:.1f} pts**")
             
             st.subheader("Módulo 5: Startups y FED")
-            st.info("**Foco Analítico:** Las mega-startups deficitarias actúan como destructores de liquidez. Si la Liquidez Neta de la Reserva Federal disminuye mientras las valoraciones privadas se inflan, se corta el oxígeno al capital riesgo.")
+            st.info("Foco Analítico: Las mega-startups deficitarias actúan como destructores de liquidez. Si la Liquidez Neta o las condiciones monetarias del mercado se endurecen mientras las valoraciones privadas se inflan, se corta el oxígeno al capital riesgo.")
             for d in det_m5: st.markdown(f"- {d}")
             st.markdown(f"**Subtotal M5: {ptos_m5:.1f} pts**")
             
@@ -422,7 +348,7 @@ def main():
             st.markdown(f"**PUNTUACIÓN BRUTA ACUMULADA: {puntuacion_total:.1f} pts** (Normalizada al tope de 10.0)")
 
     with st.expander("🔬 MÓDULO 6: METROLOGÍA Y TRAZABILIDAD DE ORIGEN", expanded=False):
-        df_metrolgia = pd.DataFrame(registro_metrológico)
+        df_metrolgia = pd.DataFrame(registro_auditoria)
         if not df_metrolgia.empty:
             st.dataframe(df_metrolgia, use_container_width=True, hide_index=True)
         else:
@@ -432,7 +358,7 @@ def main():
         with st.spinner("Conectando con GitHub..."):
             exito = guardar_historial_github(puntuacion_normalizada)
             if exito: st.success("✅ Historial actualizado y subido con éxito al repositorio.")
-            else: st.error("❌ Fallo al subir. Revisa los secretos (GH_PAT, GH_REPO, AV_API_KEY) en Streamlit.")
+            else: st.error("❌ Fallo al subir. Revisa los secretos (GH_PAT, GH_REPO) en Streamlit.")
 
 # ==========================================
 # CIERRE EXACTO
